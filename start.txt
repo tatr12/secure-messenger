@@ -1,0 +1,28 @@
+npm run dev -- --host 127.0.0.2
+
+
+smertvnishite
+
+
+
+
+seet/
+│
+├── app/
+│   ├── __init__.py
+│   ├── config.py         # Настройки и переменные окружения
+│   ├── database.py       # Инициализация Postgres и Redis
+│   ├── models.py         # SQLAlchemy модели (таблицы)
+│   ├── schemas.py        # Pydantic схемы (валидация запросов)
+│   ├── repositories.py   # Классы для прямой работы с базами (SQL)
+│   ├── services.py       # Классы бизнес-логики (управление соединениями, рассылка)
+│   └── routers/          # Раздельные эндпоинты
+│       ├── __init__.py
+│       ├── auth.py       # Регистрация и поиск юзеров
+│       └── websocket.py  # WebSocket-эндпоинт
+│
+├── Dockerfile
+├── docker-compose.yml
+└── server.py             # Главная точка входа (запуск)
+
+http://localhost:8025 мейл пит

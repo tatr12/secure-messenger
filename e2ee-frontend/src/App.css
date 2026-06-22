@@ -1,0 +1,52 @@
+/* Контейнер для уведомлений */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Стиль самого уведомления */
+.custom-toast {
+  background: #1e1e24; /* Темный премиальный фон */
+  color: #ffffff;
+  padding: 16px 24px;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  border-left: 4px solid #ff4a4a; /* Дефолтный красный СМЕРТЬ В НИЩЕТЕ */
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  min-width: 250px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  animation: slideIn 0.3s ease forwards;
+  transition: all 0.3s ease;
+}
+
+/* Цвета под разные типы уведомлений */
+.custom-toast.success { border-left-color: #00ff66; } /* Зеленый успех */
+.custom-toast.info { border-left-color: #00bcff; }    /* Синяя информация */
+.custom-toast.error { border-left-color: #ff3b30; }   /* Ошибка */
+
+/* Анимация появления */
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Анимация исчезновения */
+.custom-toast.fade-out {
+  transform: translateX(120%);
+  opacity: 0;
+}

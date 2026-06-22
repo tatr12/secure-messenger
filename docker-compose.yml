@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # --- СЕРВИС РОУТИНГА И КЭША (REDIS) ---
+  redis:
+    image: redis:7-alpine
+    container_name: messenger_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    networks:
+      - messenger_network
+
+  # --- СЕРВИС КОРНЕВОЙ БАЗЫ ДАННЫХ (POSTGRESQL) ---
+  postgres:
+    image: postgres:15-alpine
+    container_name: messenger_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: smertvnishite
+      POSTGRES_DB: messenger_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - messenger_network
+
+  # --- НАШ БЭКЕНД НА FASTAPI ---
+  backend:
+    build: .
+    container_name: messenger_backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://postgres:smertvnishite@postgres:5432/messenger_db"
+      REDIS_URL: "redis://redis:6379/0"
+      SMTP_HOST: "mailpit"
+      SMTP_PORT: 1025
+    depends_on:
+      - postgres
+      - redis
+      - mailpit
+    networks:
+      - messenger_network
+
+  # --- ПЕРЕХВАТЧИК ПИСЕМ (MAILPIT) ---
+  mailpit:
+    image: axllent/mailpit
+    container_name: messenger_mailpit
+    restart: always
+    ports:
+      - "1025:1025" # Сюда FastAPI будет слать почту
+      - "8025:8025" # Сюда ты будешь заходить смотреть письма через браузер
+    networks:
+      - messenger_network
+
+volumes:
+  postgres_data:
+
+networks:
+  messenger_network:
+    driver: bridge

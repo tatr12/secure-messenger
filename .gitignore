@@ -1,0 +1,88 @@
+# =====================
+# Python
+# =====================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+.venv/
+venv/
+env/
+
+# =====================
+# Environment
+# =====================
+.env
+.env.local
+.env.*
+
+!.env.example
+
+# =====================
+# IDE
+# =====================
+.vscode/
+.idea/
+
+# =====================
+# macOS
+# =====================
+.DS_Store
+
+# =====================
+# Node
+# =====================
+node_modules/
+dist/
+build/
+
+# =====================
+# Logs
+# =====================
+*.log
+
+# =====================
+# Python cache
+# =====================
+.pytest_cache/
+.mypy_cache/
+
+# =====================
+# Docker
+# =====================
+postgres_data/
+redis_data/
+
+# =====================
+# Temporary
+# =====================
+*.tmp
+*.bak
+
+packages/
+# Continue
+.continue/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Node
+node_modules/
+
+# Environment
+.env
+.env.*
+
+!.env.example
+
+# Local packages
+packages/
