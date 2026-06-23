@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+sqlalchemy
+asyncpg
+redis
+pydantic-settings
+aiosmtplib
+email-validator
+websockets
