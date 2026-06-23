@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field, EmailStr
 
+
 class RegisterSchema(BaseModel):
     username: str
     display_name: str
@@ -8,6 +9,7 @@ class RegisterSchema(BaseModel):
     public_key: dict
     encrypted_private_key: str
     private_key_iv: str
+
 
 class UpdateProfileSchema(BaseModel):
     display_name: str

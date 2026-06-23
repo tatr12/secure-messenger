@@ -8,6 +8,7 @@ from app.database import engine, Base, redis_mgr
 from app.services import socket_manager
 from app.routers import auth, websocket
 
+
 # Фоновый слушатель Pub/Sub Redis (перенесен в глобальный цикл)
 async def redis_pubsub_listener():
     pubsub = redis_mgr.client.pubsub()
@@ -21,6 +22,7 @@ async def redis_pubsub_listener():
                 await socket_manager.send_personal_message(packet, target_user)
     except Exception:
         pass
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -36,14 +38,15 @@ async def lifespan(app: FastAPI):
             retries -= 1
             print(f"⏳ [SYSTEM] База данных еще не готова... Попыток: {retries}")
             await asyncio.sleep(2)
-            
+
     # Запуск Redis
     redis_mgr.connect()
     pubsub_task = asyncio.create_task(redis_mgr.subscribe_and_route())
-    
+
     print("🤖 [SYSTEM] Архитектура бэкенда успешно развернута.")
     yield
     pubsub_task.cancel()
+
 
 app = FastAPI(lifespan=lifespan)
 
@@ -61,4 +64,5 @@ app.include_router(websocket.router)
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)

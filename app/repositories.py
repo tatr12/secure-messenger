@@ -3,8 +3,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import UserTable, MessageTable
 from app.schemas import RegisterSchema
 
+
 class UserRepository:
     """Класс для изоляции SQL-запросов к таблице Пользователей"""
+
     def __init__(self, db: AsyncSession):
         self.db = db
 
@@ -33,11 +35,17 @@ class UserRepository:
 
     async def search_users(self, query: str, exclude: str) -> list[UserTable]:
         q_filter = f"%{query.lower()}%"
-        stmt = select(UserTable).where(UserTable.username.like(q_filter), UserTable.username != exclude).limit(5)
+        stmt = (
+            select(UserTable)
+            .where(UserTable.username.like(q_filter), UserTable.username != exclude)
+            .limit(5)
+        )
         result = await self.db.execute(stmt)
         return result.scalars().all()
-    
-    async def update_user_profile(self, username: str, display_name: str, bio: str) -> UserTable:
+
+    async def update_user_profile(
+        self, username: str, display_name: str, bio: str
+    ) -> UserTable:
         db_user = await self.get_by_username(username)
         if db_user:
             db_user.display_name = display_name
@@ -48,6 +56,7 @@ class UserRepository:
 
 class MessageRepository:
     """Класс для работы с сообщениями в Postgres"""
+
     def __init__(self, db: AsyncSession):
         self.db = db
 
@@ -58,16 +67,21 @@ class MessageRepository:
         return data
 
     async def get_history(self, username: str) -> list[MessageTable]:
-        stmt = select(MessageTable).where(
-            or_(MessageTable.sender == username, MessageTable.receiver == username)
-        ).order_by(MessageTable.created_at.asc())
+        stmt = (
+            select(MessageTable)
+            .where(
+                or_(MessageTable.sender == username, MessageTable.receiver == username)
+            )
+            .order_by(MessageTable.created_at.asc())
+        )
         result = await self.db.execute(stmt)
         return result.scalars().all()
 
     async def mark_as_read(self, sender: str, receiver: str):
-        stmt = update(MessageTable).where(
-            MessageTable.sender == sender, 
-            MessageTable.receiver == receiver
-        ).values(status="read")
+        stmt = (
+            update(MessageTable)
+            .where(MessageTable.sender == sender, MessageTable.receiver == receiver)
+            .values(status="read")
+        )
         await self.db.execute(stmt)
         await self.db.commit()
