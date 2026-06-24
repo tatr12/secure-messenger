@@ -1,3 +1,7 @@
+PYTHON=.venv/bin/python
+RUFF=.venv/bin/ruff
+BLACK=.venv/bin/black
+PYTEST=.venv/bin/pytest
 COMPOSE_DEV=docker compose --env-file .env -f infra/compose/docker-compose.dev.yml
 COMPOSE_PROD=docker compose --env-file .env -f infra/compose/docker-compose.prod.yml
 
@@ -26,16 +30,16 @@ prod-ps:
 	$(COMPOSE_PROD) ps
 
 lint:
-	ruff check .
+	$(RUFF) check .
 
 format:
-	ruff format .
-	black .
+	$(RUFF) format .
+	$(BLACK) .
 
 test:
-	pytest
+	$(PYTEST)
 
 check:
-	ruff check .
-	black --check .
-	pytest
+	$(RUFF) check .
+	$(BLACK) --check .
+	$(PYTEST)
