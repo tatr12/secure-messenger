@@ -1,0 +1,58 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: messenger_redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - messenger_network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: messenger_postgres
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - messenger_network
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: messenger_backend
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - messenger_network
+
+volumes:
+  postgres_data:
+
+networks:
+  messenger_network:
+    driver: bridge
