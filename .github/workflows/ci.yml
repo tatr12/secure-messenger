@@ -26,18 +26,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements/dev.txt
 
-      - name: Check Python syntax
+      - name: Run project checks
         run: |
-          python -m compileall app server.py backend
-
-      - name: Run Ruff
-        run: |
-          ruff check .
-
-      - name: Run Black check
-        run: |
-          black --check .
-
-      - name: Run Pytest
-        run: |
-          pytest
+          make check
