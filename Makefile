@@ -1,18 +1,41 @@
+COMPOSE_DEV=docker compose --env-file .env -f infra/compose/docker-compose.dev.yml
+COMPOSE_PROD=docker compose --env-file .env -f infra/compose/docker-compose.prod.yml
+
 up:
-	docker compose up -d --build
+	$(COMPOSE_DEV) up -d --build
 
 down:
-	docker compose down
-
-logs:
-	docker compose logs -f
+	$(COMPOSE_DEV) down
 
 ps:
-	docker compose ps
+	$(COMPOSE_DEV) ps
 
-restart:
-	docker compose down
-	docker compose up -d --build
+logs:
+	$(COMPOSE_DEV) logs -f
 
 backend-logs:
-	docker compose logs -f backend
+	$(COMPOSE_DEV) logs -f backend
+
+prod-up:
+	$(COMPOSE_PROD) up -d --build
+
+prod-down:
+	$(COMPOSE_PROD) down
+
+prod-ps:
+	$(COMPOSE_PROD) ps
+
+lint:
+	ruff check .
+
+format:
+	ruff format .
+	black .
+
+test:
+	pytest
+
+check:
+	ruff check .
+	black --check .
+	pytest
