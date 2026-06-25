@@ -1,19 +1,41 @@
 services:
-  redis:
-    image: redis:7-alpine
-    container_name: messenger_redis
+  nginx:
+    image: nginx:1.27-alpine
     restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - messenger_network
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
+    expose:
+      - "8000"
     networks:
       - messenger_network
 
   postgres:
     image: postgres:15-alpine
-    container_name: messenger_postgres
     restart: unless-stopped
     env_file:
       - ../../.env
@@ -27,23 +49,11 @@ services:
     networks:
       - messenger_network
 
-  backend:
-    build:
-      context: ../..
-      dockerfile: Dockerfile
-    container_name: messenger_backend
+  redis:
+    image: redis:7-alpine
     restart: unless-stopped
-    env_file:
-      - ../../.env
-    ports:
-      - "8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
