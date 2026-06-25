@@ -7,3 +7,4 @@ pydantic-settings
 aiosmtplib
 email-validator
 websockets
+prometheus-fastapi-instrumentator
