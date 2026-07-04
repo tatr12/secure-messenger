@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db, redis_mgr
+from app.security import verify_password
 from app.schemas import RegisterSchema, UpdateProfileSchema
 from app.repositories import UserRepository, MessageRepository
 from app.services import (
@@ -108,8 +109,8 @@ async def login(data: dict, db: AsyncSession = Depends(get_db)):
             content={"error": "Email not verified. Please check your inbox."},
         )
 
-    # TODO: Add password verification logic here
-    # For now, we'll just check if user exists and is verified
+    if not user.password_hash or not verify_password(password, user.password_hash):
+        return JSONResponse(status_code=401, content={"error": "Invalid credentials"})
 
     return {
         "id": user.id,

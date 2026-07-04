@@ -1,33 +1,63 @@
 PYTHON=.venv/bin/python
 RUFF=.venv/bin/ruff
 BLACK=.venv/bin/black
-PYTEST=.venv/bin/pytest
-COMPOSE_DEV=docker compose --env-file .env -f infra/compose/docker-compose.dev.yml
-COMPOSE_PROD=docker compose --env-file .env -f infra/compose/docker-compose.prod.yml
+PYTEST=PYTHONPATH=. .venv/bin/pytest
 
-up:
-	$(COMPOSE_DEV) up -d --build
+COMPOSE=docker compose \
+	--env-file .env \
+	-f infra/compose/docker-compose.prod.yml \
+	-f infra/compose/docker-compose.monitoring.yml
 
-down:
-	$(COMPOSE_DEV) down
+MESSAGE ?= migration
 
-ps:
-	$(COMPOSE_DEV) ps
+# ==========================
+# Development
+# ==========================
+
+start:
+	./infra/scripts/start-dev.sh
+
+stop:
+	$(COMPOSE) down
+
+restart:
+	$(MAKE) stop
+	$(MAKE) start
+
+status:
+	$(COMPOSE) ps
 
 logs:
-	$(COMPOSE_DEV) logs -f
+	$(COMPOSE) logs -f
 
 backend-logs:
-	$(COMPOSE_DEV) logs -f backend
+	$(COMPOSE) logs -f backend
 
-prod-up:
-	$(COMPOSE_PROD) up -d --build
+postgres-logs:
+	$(COMPOSE) logs -f postgres
 
-prod-down:
-	$(COMPOSE_PROD) down
+nginx-logs:
+	$(COMPOSE) logs -f nginx
 
-prod-ps:
-	$(COMPOSE_PROD) ps
+# ==========================
+# Monitoring
+# ==========================
+
+health:
+	curl http://localhost/health
+
+metrics:
+	curl http://localhost/metrics | head -30
+
+grafana:
+	open http://localhost:3000
+
+prometheus:
+	open http://localhost:9090
+
+# ==========================
+# Quality
+# ==========================
 
 lint:
 	$(RUFF) check .
@@ -43,3 +73,22 @@ check:
 	$(RUFF) check .
 	$(BLACK) --check .
 	$(PYTEST)
+
+# ==========================
+# Database (Alembic)
+# ==========================
+
+migration:
+	alembic revision --autogenerate -m "$(MESSAGE)"
+
+migrate:
+	alembic upgrade head
+
+downgrade:
+	alembic downgrade -1
+
+history:
+	alembic history
+
+current:
+	alembic current

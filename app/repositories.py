@@ -2,6 +2,7 @@ from sqlalchemy import select, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import UserTable, MessageTable
 from app.schemas import RegisterSchema
+from app.security import hash_password
 
 
 class UserRepository:
@@ -21,9 +22,14 @@ class UserRepository:
         return result.scalars().first()
 
     async def create_user(self, data: RegisterSchema) -> UserTable:
-        new_user = UserTable(**data.model_dump())
+        user_data = data.model_dump(exclude={"password"})
+        new_user = UserTable(
+            **user_data,
+            password_hash=hash_password(data.password),
+        )
         self.db.add(new_user)
         await self.db.commit()
+        await self.db.refresh(new_user)
         return new_user
 
     async def verify_user(self, username: str) -> UserTable:

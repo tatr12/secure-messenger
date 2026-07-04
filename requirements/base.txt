@@ -8,3 +8,7 @@ aiosmtplib
 email-validator
 websockets
 prometheus-fastapi-instrumentator
+alembic
+greenlet
+psycopg[binary]
+pwdlib[argon2]
