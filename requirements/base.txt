@@ -12,3 +12,4 @@ alembic
 greenlet
 psycopg[binary]
 pwdlib[argon2]
+python-jose[cryptography]

@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db, redis_mgr
+from app.dependencies import get_current_user
 from app.security import verify_password
+from app.jwt import create_access_token
 from app.schemas import RegisterSchema, UpdateProfileSchema
 from app.repositories import UserRepository, MessageRepository
 from app.services import (
@@ -112,13 +114,23 @@ async def login(data: dict, db: AsyncSession = Depends(get_db)):
     if not user.password_hash or not verify_password(password, user.password_hash):
         return JSONResponse(status_code=401, content={"error": "Invalid credentials"})
 
+    access_token = create_access_token(
+        {
+            "sub": user.username,
+            "user_id": user.id,
+        }
+    )
+
     return {
-        "id": user.id,
-        "username": user.username,
-        "display_name": user.display_name,
-        "email": user.email,
-        "session_token": str(user.id),
-        "is_verified": user.is_verified,
+        "access_token": access_token,
+        "token_type": "Bearer",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "display_name": user.display_name,
+            "email": user.email,
+            "is_verified": user.is_verified,
+        },
     }
 
 
@@ -166,12 +178,18 @@ async def search_users(
 
 
 # --- ВОСКРЕШАЕМ ЭНДПОИНТ ОБНОВЛЕНИЯ ПРОФИЛЯ ---
-@router.post("/user/{username}/update")
+@router.post("/user/update")
 async def update_profile(
-    username: str, data: UpdateProfileSchema, db: AsyncSession = Depends(get_db)
+    data: UpdateProfileSchema,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     repo = UserRepository(db)
-    updated_user = await repo.update_user_profile(username, data.display_name, data.bio)
+    updated_user = await repo.update_user_profile(
+        current_user.username,
+        data.display_name,
+        data.bio,
+    )
     if not updated_user:
         return JSONResponse(status_code=404, content={"error": "User not found"})
 
@@ -183,10 +201,13 @@ async def update_profile(
 
 
 # --- ВОСКРЕШАЕМ ЭНДПОИНТ ИСТОРИИ СООБЩЕНИЙ ---
-@router.get("/history/{username}")
-async def get_history(username: str, db: AsyncSession = Depends(get_db)):
+@router.get("/history")
+async def get_history(
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     repo = MessageRepository(db)
-    messages = await repo.get_history(username)
+    messages = await repo.get_history(current_user.username)
 
     return [
         {
@@ -200,3 +221,20 @@ async def get_history(username: str, db: AsyncSession = Depends(get_db)):
         }
         for m in messages
     ]
+
+
+@router.get("/me")
+async def me(current_user=Depends(get_current_user)):
+    return {
+        "status": "success",
+        "user": {
+            "id": current_user.id,
+            "username": current_user.username,
+            "email": current_user.email,
+            "display_name": current_user.display_name,
+            "bio": current_user.bio,
+            "avatar_url": current_user.avatar_url,
+            "is_verified": current_user.is_verified,
+            "is_active": current_user.is_active,
+        },
+    }

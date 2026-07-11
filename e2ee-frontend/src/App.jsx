@@ -71,45 +71,72 @@ export default function App() {
   }, [m.isProfileOpen]);
 
   const styles = {
-    container: { display: 'flex', height: '100vh', width: '100vw', background: '#050505', color: '#e5e5e5', fontFamily: 'Courier New, Courier, monospace' },
-    authContainer: { margin: 'auto', width: 350, background: '#0a0a0f', border: '2px solid #ff0033', boxShadow: '0 0 20px rgba(25, 0, 51, 0.7)', borderRadius: 4, overflow: 'hidden' },
-    authTabs: { display: 'flex', borderBottom: '1px solid #1a1a24' },
-    tab: (active) => ({ flex: 1, padding: 15, background: active ? '#111' : '#050505', border: 'none', color: active ? '#ff0033' : '#555', fontWeight: 'bold', cursor: 'pointer', fontSize: 13, textTransform: 'uppercase' }),
-    authBox: { padding: 30, display: 'flex', flexDirection: 'column', gap: 15 },
-    input: { padding: 12, borderRadius: 2, border: '1px solid #222', background: '#0d0d0d', color: '#ff0033', outline: 'none', fontFamily: 'monospace' },
-    btn: { padding: 12, borderRadius: 2, border: '1px solid #ff0033', background: '#ff0033', color: '#000', fontWeight: 'bold', cursor: 'pointer', textTransform: 'uppercase' },
-    sidebar: { width: 300, borderRight: '1px solid #1a1a24', display: 'flex', flexDirection: 'column', background: '#0a0a0f' },
-    mainChat: { flex: 1, display: 'flex', flexDirection: 'column', background: '#030305' },
-    chatItem: (isActive) => ({ padding: '14px 20px', background: isActive ? '#140508' : 'transparent', borderLeft: isActive ? '4px solid #ff0033' : '4px solid transparent', cursor: 'pointer', borderBottom: '1px solid #111' }),
-    bubble: (isMe) => ({ alignSelf: isMe ? 'flex-end' : 'flex-start', background: isMe ? '#1a0508' : '#0f0f14', border: isMe ? '1px solid #ff0033' : '1px solid #222', padding: '11px 15px', borderRadius: 4, maxWidth: '65%', wordBreak: 'break-word' }),
-    badge: (isOnline) => ({ width: 8, height: 8, borderRadius: '50%', background: isOnline ? '#00ff66' : '#ff0033', display: 'inline-block', marginLeft: 8 }),
-    modal: { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
-    avatarPlaceholder: { width: 90, height: 90, borderRadius: '50%', border: '2px dashed #ff0033', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px auto', color: '#333', fontSize: 12 },
-    infoBlock: { background: '#050508', border: '1px solid #111', padding: 12, borderRadius: 2, display: 'flex', flexDirection: 'column', gap: 4, textAlign: 'left' },
-    searchDropdown: { position: 'absolute', top: '100%', left: 15, right: 15, background: '#0d0d13', border: '1px solid #ff0033', zIndex: 50, borderRadius: 2, overflow: 'hidden', boxShadow: '0 5px 15px rgba(0,0,0,0.8)' },
-    searchResultItem: { padding: '10px 15px', borderBottom: '1px solid #1a1a24', cursor: 'pointer', display: 'flex', flexDirection: 'column' },
-    onlineText: (isOnline) => ({ fontSize: 11, color: isOnline ? '#00ff66' : '#555', textTransform: 'uppercase', display: 'block', marginTop: 2 }),
-    
-    // Стили для контейнера тостов
-    toastContainer: { position: 'fixed', bottom: 24, right: 24, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 12 },
-    toast: (type, fadeOut) => ({
-      background: '#0a0a0f',
-      color: '#e5e5e5',
-      padding: '14px 20px',
-      borderRadius: 2,
-      border: '1px solid #222',
-      borderLeft: `4px solid ${type === 'success' ? '#00ff66' : type === 'chat' ? '#ff0033' : '#00bcff'}`,
-      boxShadow: '0 0 15px rgba(0,0,0,0.7)',
-      fontFamily: 'monospace',
-      fontSize: 12,
-      minWidth: 280,
-      maxWidth: 360,
-      position: 'relative',
-      transform: fadeOut ? 'translateX(150%)' : 'translateX(0)',
-      opacity: fadeOut ? 0 : 1,
-      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+    container: {
+      display: 'flex',
+      minHeight: '100vh',
+      width: '100vw',
+      background:
+        'radial-gradient(circle at top left, rgba(0,122,255,0.10), transparent 32%), radial-gradient(circle at bottom right, rgba(175,82,222,0.08), transparent 30%), #f5f5f7',
+      color: '#1d1d1f',
+      fontFamily:
+        '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif',
+    },
+
+    authContainer: {
+      margin: 'auto',
+      width: 420,
+      background: 'rgba(255,255,255,0.82)',
+      border: '1px solid rgba(255,255,255,0.9)',
+      boxShadow: '0 24px 70px rgba(0,0,0,0.12)',
+      borderRadius: 24,
+      overflow: 'hidden',
+      backdropFilter: 'blur(24px)',
+    },
+
+    authTabs: {
+      display: 'flex',
+      borderBottom: '1px solid rgba(0,0,0,0.08)',
+    },
+
+    tab: (active) => ({
+      flex: 1,
+      padding: '18px 16px',
+      background: active ? 'rgba(0,122,255,0.10)' : 'transparent',
+      border: 'none',
+      color: active ? '#007aff' : '#86868b',
+      fontWeight: 600,
+      cursor: 'pointer',
+      fontSize: 14,
     }),
-    toastClose: { position: 'absolute', top: 6, right: 10, background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 14, fontWeight: 'bold' }
+
+    authBox: {
+      padding: 36,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 16,
+    },
+
+    input: {
+      padding: '15px 16px',
+      borderRadius: 14,
+      border: '1px solid #d2d2d7',
+      background: 'rgba(255,255,255,0.95)',
+      color: '#1d1d1f',
+      outline: 'none',
+      fontFamily: 'inherit',
+      fontSize: 15,
+    },
+
+    btn: {
+      padding: '15px 18px',
+      borderRadius: 14,
+      border: 'none',
+      background: '#007aff',
+      color: '#ffffff',
+      fontWeight: 600,
+      cursor: 'pointer',
+      fontSize: 15,
+    },
   };
 
   const handleAuthSubmit = async (e) => {
@@ -137,13 +164,20 @@ export default function App() {
             </div>
           )}
           <form style={styles.authBox} onSubmit={handleAuthSubmit}>
-            <div style={{ textAlign: 'center', fontSize: 20, fontWeight: 'bold', color: '#ff0033', letterSpacing: '2px' }}>💀 СМЕРТЬ В НИЩЕТЕ</div>
-            <input style={styles.input} placeholder="УНИКАЛЬНЫЙ ЛОГИН" value={m.username} onChange={e => m.setUsername(e.target.value)} />
-            {m.isRegMode && <input style={styles.input} placeholder="ОТОБРАЖАЕМОЕ ИМЯ" value={m.displayName} onChange={e => m.setDisplayName(e.target.value)} />}
-            {m.isRegMode && <input style={styles.input} placeholder="EMAIL ДЛЯ ВЕРИФИКАЦИИ" type="email" value={m.email} onChange={e => m.setEmail(e.target.value)} />}
-            <input style={styles.input} type="password" placeholder="ПИН-КОД ЗАКРЫТОГО КЛЮЧА" value={m.password} onChange={e => m.setPassword(e.target.value)} />
-            {m.isRegMode && <input style={styles.input} type="password" placeholder="ПОДТВЕРЖДЕНИЕ ПИН-КОДА" value={m.confirmPassword} onChange={e => m.setConfirmPassword(e.target.value)} />}
-            <button style={styles.btn} type="submit">{m.isRegMode ? 'Создать терминал' : 'Инициализировать'}</button>
+            <div style={{ textAlign: 'center', marginBottom: 8 }}>
+              <div style={{ fontSize: 30, fontWeight: 700, color: '#1d1d1f', letterSpacing: '-1px' }}>
+                VOIDEN
+              </div>
+              <div style={{ marginTop: 6, color: '#86868b', fontSize: 13 }}>
+                {m.isRegMode ? 'Создайте защищённый аккаунт' : 'Войдите, чтобы продолжить'}
+              </div>
+            </div>
+            <input style={styles.input} placeholder="Логин" value={m.username} onChange={e => m.setUsername(e.target.value)} />
+            {m.isRegMode && <input style={styles.input} placeholder="Отображаемое имя" value={m.displayName} onChange={e => m.setDisplayName(e.target.value)} />}
+            {m.isRegMode && <input style={styles.input} placeholder="Email" type="email" value={m.email} onChange={e => m.setEmail(e.target.value)} />}
+            <input style={styles.input} type="password" placeholder="Пароль" value={m.password} onChange={e => m.setPassword(e.target.value)} />
+            {m.isRegMode && <input style={styles.input} type="password" placeholder="Подтвердите пароль" value={m.confirmPassword} onChange={e => m.setConfirmPassword(e.target.value)} />}
+            <button style={styles.btn} type="submit">{m.isRegMode ? 'Создать аккаунт' : 'Войти'}</button>
           </form>
         </div>
 
@@ -195,7 +229,7 @@ export default function App() {
                 await m.changeProfileData(newNickInput, newBioInput);
                 m.setIsProfileOpen(false);
                 m.showNotification('Ядро обновлено: данные реестра изменены', 'success');
-              } catch(e) {
+              } catch (e) {
                 m.showNotification('Ошибка обновления данных реестра', 'error');
               }
             }}>Сохранить реестр</button>
@@ -235,7 +269,7 @@ export default function App() {
 
       {/* ЛЕВАЯ ПАНЕЛЬ */}
       <div style={styles.sidebar}>
-        <div style={{ padding: 20, borderBottom: '1px solid #1a1a24', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#07070a' }}>
+        <div style={{ padding: 20, borderBottom: '1px solid rgba(0, 0, 0, 0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#07070a' }}>
           <div>
             <div style={{ fontSize: 14, fontWeight: 'bold', color: '#ff0033', cursor: 'pointer' }} onClick={() => m.setIsProfileOpen(true)}>
               {m.displayName} <span style={styles.badge(m.wsStatus === 'online')} />
@@ -246,7 +280,7 @@ export default function App() {
         </div>
 
         {/* ЖИВОЙ ПОИСК */}
-        <div style={{ padding: 15, borderBottom: '1px solid #1a1a24', position: 'relative' }}>
+        <div style={{ padding: 15, borderBottom: '1px solid rgba(0, 0, 0, 0.08)', position: 'relative' }}>
           <input
             style={{ ...styles.input, padding: 10, width: '100%', boxSizing: 'border-box', fontSize: 13 }}
             placeholder="Поиск контактов в сети..."
@@ -275,9 +309,9 @@ export default function App() {
             <div style={{ ...styles.searchDropdown, padding: 12, color: '#444', fontSize: 11, textAlign: 'center' }}>НЕТ СОВПАДЕНИЙ</div>
           )}
         </div>
-        
-        <div style={{ padding: '10px 20px', fontSize: 11, color: '#333', borderBottom: '1px solid #1a1a24' }}>ОТКРЫТЫЕ КАНАЛЫ</div>
-        
+
+        <div style={{ padding: '10px 20px', fontSize: 11, color: '#333', borderBottom: '1px solid rgba(0, 0, 0, 0.08)' }}>ОТКРЫТЫЕ КАНАЛЫ</div>
+
         {/* СПИСОК ЧАТОВ */}
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {m.chatPartners.map(partner => (
@@ -296,7 +330,7 @@ export default function App() {
         {m.activeChatUser ? (
           <>
             <div
-              style={{ padding: 16, borderBottom: '1px solid #1a1a24', background: '#07070a', cursor: 'pointer' }}
+              style={{ padding: 16, borderBottom: '1px solid rgba(0, 0, 0, 0.08)', background: '#07070a', cursor: 'pointer' }}
               onClick={() => m.inspectPartnerProfile(m.activeChatUser)}
             >
               КАНАЛ СВЯЗИ: <b style={{ color: '#ff0033' }}>{m.userCache[m.activeChatUser] || m.activeChatUser}</b>
@@ -337,7 +371,7 @@ export default function App() {
           <div key={toast.id} style={styles.toast(toast.type, toast.fadeOut)}>
             {/* Кнопка ручного закрытия "крестик" */}
             <button style={styles.toastClose} onClick={() => m.dismissToast(toast.id)}>×</button>
-            
+
             {/* Если это пуш чата, выведем жирный заголовок отправителя */}
             {toast.title && (
               <div style={{ color: '#ff0033', fontWeight: 'bold', marginBottom: 4, fontSize: 11, textTransform: 'uppercase' }}>

@@ -55,7 +55,7 @@ async def generate_verification_token() -> str:
 async def send_verification_email(to_email: str, token: str):
     """Send verification email using aiosmtplib."""
     # Меняем localhost на 127.0.0.2, раз твой фронтенд сидит там
-    verify_url = f"http://127.0.0.2:5173/verify?token={token}"
+    verify_url = f"http://localhost/verify?token={token}"
 
     msg = MIMEMultipart()
     # Защита от отсутствия SMTP_FROM в pydantic-settings

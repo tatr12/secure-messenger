@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db, redis_mgr
+from app.jwt import decode_access_token
 from app.models import MessageTable
 from app.repositories import MessageRepository
 from app.services import socket_manager
@@ -14,10 +15,23 @@ router = APIRouter(tags=["Websocket Router"])
 logger = logging.getLogger(__name__)
 
 
-@router.websocket("/ws/{username}")
+@router.websocket("/ws")
 async def websocket_endpoint(
-    websocket: WebSocket, username: str, db: AsyncSession = Depends(get_db)
+    websocket: WebSocket,
+    db: AsyncSession = Depends(get_db),
 ):
+    token = websocket.query_params.get("token")
+    payload = decode_access_token(token) if token else None
+
+    if payload is None:
+        await websocket.close(code=1008)
+        return
+
+    username = payload.get("sub")
+    if not username:
+        await websocket.close(code=1008)
+        return
+
     await socket_manager.connect(username, websocket)
     await redis_mgr.set_online(username)
     repo = MessageRepository(db)
