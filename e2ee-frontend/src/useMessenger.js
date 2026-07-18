@@ -241,7 +241,7 @@ export function useMessenger() {
     if (!username || !password) return;
 
     if (isRegMode) {
-      if (!displayName || !email || !confirmPassword) return;
+      if (!email || !confirmPassword) return;
       if (password !== confirmPassword) {
         showNotification("Пароли не совпадают", "error");
         return;
@@ -294,7 +294,7 @@ export function useMessenger() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             username: username,
-            display_name: displayName,
+            display_name: username,
             email: email,
             bio: bio,
             public_key: publicKey,

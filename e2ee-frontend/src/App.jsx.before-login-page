@@ -1,9 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useMessenger } from './useMessenger';
-import { Button } from './ui/Button/Button';
-import { Input } from './ui/Input/Input';
+import { Button } from './components/Button/Button';
+import { Input } from './components/Input/Input';
 import LoginPage from './pages/Login/LoginPage';
-import ChatPage from './pages/Chat/ChatPage';
 
 export default function App() {
   const m = useMessenger();
@@ -153,7 +152,65 @@ export default function App() {
   };
 
   if (!m.isLoggedIn) {
-    return <ChatPage />;
+    return (
+      <div style={styles.container}>
+        <div style={styles.authContainer}>
+          <div style={styles.authTabs}>
+            <button style={styles.tab(!m.isRegMode)} onClick={() => m.setIsRegMode(false)}>Вход</button>
+            <button style={styles.tab(m.isRegMode)} onClick={() => m.setIsRegMode(true)}>Регистрация</button>
+          </div>
+          {(verificationLoading || verificationStatus || verificationError) && (
+            <div style={{ padding: '0 30px', textAlign: 'center', fontSize: 12, color: '#fff' }}>
+              {verificationLoading && <div style={{ color: '#00ff66', marginBottom: 10 }}>Проверка токена...</div>}
+              {verificationStatus && <div style={{ color: '#00ff66', marginBottom: 10 }}>{verificationStatus}</div>}
+              {verificationError && <div style={{ color: '#ff0033', marginBottom: 10 }}>{verificationError}</div>}
+            </div>
+          )}
+          <form style={styles.authBox} onSubmit={handleAuthSubmit}>
+            <div style={{ textAlign: 'center', marginBottom: 8 }}>
+              <div style={{ fontSize: 30, fontWeight: 700, color: '#1d1d1f', letterSpacing: '-1px' }}>
+                VOIDEN
+              </div>
+              <div style={{ marginTop: 6, color: '#86868b', fontSize: 13 }}>
+                {m.isRegMode ? 'Создайте защищённый аккаунт' : 'Войдите, чтобы продолжить'}
+              </div>
+            </div>
+            <input 
+            placeholder="Логин" 
+            value={m.username} 
+            onChange={(e) => m.setUsername(e.target.value)} 
+            autoComplete="username" 
+            />
+             
+            {m.isRegMode && <input style={styles.input} placeholder="Email" type="email" value={m.email} onChange={e => m.setEmail(e.target.value)} />}
+            <input 
+              type ="password" 
+              placeholder="Пароль"
+              value={m.confirmPassword}
+              onChange={(e) => m.setConfirmPassword(e.target.value)}
+              autoComplete="new-password"
+              />
+            {m.isRegMode && <input style={styles.input} type="password" placeholder="Подтвердите пароль" value={m.confirmPassword} onChange={e => m.setConfirmPassword(e.target.value)} />}
+            <button style={styles.btn} type="submit">{m.isRegMode ? 'Создать аккаунт' : 'Войти'}</button>
+          </form>
+        </div>
+
+        {/* 🔴 КОНТЕЙНЕР ДЛЯ ПУШЕЙ НА ЭКРАНЕ АВТОРИЗАЦИИ */}
+        <div style={styles.toastContainer}>
+          {m.toasts.map((toast) => (
+            <div key={toast.id} style={styles.toast(toast.type, toast.fadeOut)}>
+              <button style={styles.toastClose} onClick={() => m.dismissToast(toast.id)}>×</button>
+              {toast.title && (
+                <div style={{ color: '#ff0033', fontWeight: 'bold', marginBottom: 4, fontSize: 11, textTransform: 'uppercase' }}>
+                  Входящий пакет [{toast.title}]:
+                </div>
+              )}
+              <span style={{ wordBreak: 'break-word', paddingRight: 10 }}>{toast.message}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (

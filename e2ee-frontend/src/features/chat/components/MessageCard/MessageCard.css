@@ -1,0 +1,72 @@
+.message-card {
+  align-self: flex-start;
+
+  max-width: 460px;
+  padding: 16px 18px;
+
+  border: 1px solid var(--color-border);
+  border-radius:
+    var(--radius-lg)
+    var(--radius-lg)
+    var(--radius-lg)
+    var(--radius-sm);
+
+  background: var(--color-surface-soft);
+  color: var(--color-text);
+
+  box-shadow:
+    0 6px 18px rgba(0,0,0,.04);
+
+  animation: message-card-enter 180ms ease both;
+}
+
+.message-card.is-mine {
+  align-self: flex-end;
+
+  border-color: transparent;
+  border-radius:18px;
+    border-radius:
+  var(--radius-lg)
+  var(--radius-lg)
+  var(--radius-sm)
+  var(--radius-lg);
+
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+}
+
+.message-card__text {
+  margin: 0;
+
+  font-size: var(--font-size-md);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.message-card__meta {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+
+  margin-top: 6px;
+
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.message-card.is-mine .message-card__meta {
+  color: rgba(255, 255, 255, 0.58);
+}
+
+@keyframes message-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

@@ -1,0 +1,37 @@
+.chat-page {
+  min-height: 100vh;
+  display: flex;
+
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(255, 255, 255, 0.72),
+      transparent 32%
+    ),
+    linear-gradient(
+      180deg,
+      var(--color-bg-soft) 0%,
+      var(--color-bg) 100%
+    );
+
+  color: var(--color-text);
+}
+
+.chat-page__content {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+}
+
+.chat-page__content h1 {
+  margin: 0;
+  font-size: 40px;
+  letter-spacing: 0.12em;
+}
+
+.chat-page__content p {
+  margin: 0;
+  color: #85858b;
+}

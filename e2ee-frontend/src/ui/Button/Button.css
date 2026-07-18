@@ -1,0 +1,81 @@
+.ui-button {
+  position: relative;
+  min-height: 48px;
+  height: 48px;
+  padding: 0 20px;
+
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+
+  font-family: var(--font-family);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+
+  cursor: pointer;
+  overflow: hidden;
+
+  transition:
+    transform var(--transition-fast),
+    box-shadow var(--transition-fast),
+    opacity var(--transition-fast);
+}
+
+.ui-button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.10),
+    transparent 48%
+  );
+}
+
+.ui-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.ui-button:active:not(:disabled) {
+  transform: translateY(0) scale(0.992);
+}
+
+.ui-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.ui-button--primary {
+  background: linear-gradient(180deg, #252527 0%, #171719 100%);
+  color: #ffffff;
+
+  box-shadow:
+    0 8px 18px rgba(0, 0, 0, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+
+.ui-button--primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #2c2c2f 0%, #1b1b1d 100%);
+
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.ui-button--secondary {
+  background: rgba(245, 245, 247, 0.9);
+  color: #1b1b1d;
+  border-color: #dedee2;
+}
+
+.ui-button--ghost {
+  background: transparent;
+  color: #727278;
+  border-color: transparent;
+}
+
+.ui-button--full {
+  width: 100%;
+}

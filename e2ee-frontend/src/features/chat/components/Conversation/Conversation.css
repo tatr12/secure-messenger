@@ -1,0 +1,10 @@
+.conversation {
+  flex: 1;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+
+  min-width: 0;
+
+  background: var(--color-surface);
+  color: var(--color-text);
+}
