@@ -1,3 +1,4 @@
+import secrets
 from datetime import UTC, datetime, timedelta
 
 from jose import JWTError, jwt
@@ -7,9 +8,11 @@ from app.config import settings
 
 def create_access_token(data: dict) -> str:
     payload = data.copy()
-    payload["exp"] = datetime.now(UTC) + timedelta(
-        minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
-    )
+    issued_at = datetime.now(UTC)
+    payload["type"] = "access"
+    payload["iat"] = issued_at
+    payload["jti"] = secrets.token_urlsafe(16)
+    payload["exp"] = issued_at + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
 
     return jwt.encode(
         payload,
@@ -27,3 +30,7 @@ def decode_access_token(token: str) -> dict | None:
         )
     except JWTError:
         return None
+
+
+def access_token_expires_in() -> int:
+    return settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60

@@ -1,5 +1,6 @@
 import base64
 import binascii
+from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
@@ -115,3 +116,13 @@ class KeyEnvelopeResponseSchema(BaseModel):
 class UpdateKeyEnvelopeSchema(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     key_envelope: KeyEnvelopeV2Schema
+
+
+class SessionResponseSchema(BaseModel):
+    id: str
+    current: bool
+    user_agent: str | None
+    ip_address: str | None
+    created_at: datetime
+    last_used_at: datetime
+    expires_at: datetime

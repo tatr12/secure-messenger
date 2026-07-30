@@ -1,27 +1,91 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+import logging
+from datetime import UTC, datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import settings
 from app.database import get_db, redis_mgr
-from app.dependencies import get_current_user
+from app.dependencies import AuthContext, get_current_auth, get_current_user, security
+from app.jwt import access_token_expires_in, create_access_token, decode_access_token
 from app.key_envelopes import deserialize_key_envelope, is_key_envelope_v2
-from app.security import verify_password
-from app.jwt import create_access_token
+from app.repositories import MessageRepository, SessionRepository, UserRepository
 from app.schemas import (
     KeyEnvelopeResponseSchema,
     PublicUserSchema,
     RegisterSchema,
+    SessionResponseSchema,
     UpdateKeyEnvelopeSchema,
     UpdateProfileSchema,
 )
-from app.repositories import UserRepository, MessageRepository
+from app.security import verify_password
 from app.services import (
     generate_verification_token,
     send_verification_email,
     store_verification_token,
     verify_token,
 )
+from app.session_tokens import (
+    clear_refresh_cookie,
+    generate_refresh_token,
+    hash_refresh_token,
+    refresh_token_expires_at,
+    set_refresh_cookie,
+)
 
 router = APIRouter(tags=["Auth & Profile"])
+logger = logging.getLogger(__name__)
+
+
+def _client_metadata(request: Request) -> tuple[str | None, str | None]:
+    user_agent = request.headers.get("user-agent")
+    if user_agent:
+        user_agent = user_agent[:512]
+    ip_address = request.client.host[:45] if request.client else None
+    return user_agent, ip_address
+
+
+def _token_response(user, session_id: str) -> dict:
+    access_token = create_access_token(
+        {
+            "sub": user.username,
+            "user_id": user.id,
+            "sid": session_id,
+        }
+    )
+    return {
+        "access_token": access_token,
+        "token_type": "Bearer",
+        "expires_in": access_token_expires_in(),
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "display_name": user.display_name,
+            "email": user.email,
+            "is_verified": user.is_verified,
+        },
+    }
+
+
+async def _publish_session_revocation(session_id: str | None) -> None:
+    if not session_id:
+        return
+    try:
+        await redis_mgr.publish_message(
+            "messenger_routing",
+            {"type": "session_revoked", "session_id": session_id},
+        )
+    except Exception:
+        logger.warning("Failed to publish session revocation", exc_info=True)
+
+
+def _invalid_session_response(detail: str) -> JSONResponse:
+    response = JSONResponse(status_code=401, content={"detail": detail})
+    response.headers["Cache-Control"] = "no-store"
+    clear_refresh_cookie(response)
+    return response
 
 
 @router.post("/register")
@@ -96,7 +160,12 @@ async def verify_email(
 
 
 @router.post("/login")
-async def login(data: dict, db: AsyncSession = Depends(get_db)):
+async def login(
+    data: dict,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
     username = data.get("username")
     password = data.get("password")
 
@@ -121,24 +190,144 @@ async def login(data: dict, db: AsyncSession = Depends(get_db)):
     if not user.password_hash or not verify_password(password, user.password_hash):
         return JSONResponse(status_code=401, content={"error": "Invalid credentials"})
 
-    access_token = create_access_token(
-        {
-            "sub": user.username,
-            "user_id": user.id,
-        }
-    )
+    session_repo = SessionRepository(db)
+    existing_refresh_token = request.cookies.get(settings.SESSION_COOKIE_NAME)
+    if existing_refresh_token:
+        revoked_session_id = await session_repo.revoke_by_refresh_hash(
+            hash_refresh_token(existing_refresh_token)
+        )
+        await _publish_session_revocation(revoked_session_id)
 
-    return {
-        "access_token": access_token,
-        "token_type": "Bearer",
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "display_name": user.display_name,
-            "email": user.email,
-            "is_verified": user.is_verified,
-        },
-    }
+    refresh_token = generate_refresh_token()
+    expires_at = refresh_token_expires_at()
+    user_agent, ip_address = _client_metadata(request)
+    session = await session_repo.create_session(
+        user_id=user.id,
+        refresh_token_hash=hash_refresh_token(refresh_token),
+        expires_at=expires_at,
+        user_agent=user_agent,
+        ip_address=ip_address,
+    )
+    set_refresh_cookie(response, refresh_token, expires_at=expires_at)
+    response.headers["Cache-Control"] = "no-store"
+
+    return _token_response(user, session.id)
+
+
+@router.post("/session/refresh")
+async def refresh_session(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "no-store"
+    refresh_token = request.cookies.get(settings.SESSION_COOKIE_NAME)
+    if not refresh_token:
+        return _invalid_session_response("Refresh session required")
+
+    session_repo = SessionRepository(db)
+    session = await session_repo.get_by_refresh_hash_for_update(
+        hash_refresh_token(refresh_token)
+    )
+    now = datetime.now(UTC)
+    if session is None or session.revoked_at is not None or session.expires_at <= now:
+        if session is not None:
+            await session_repo.revoke_session(session)
+            await _publish_session_revocation(session.id)
+        return _invalid_session_response("Invalid or expired session")
+
+    user = await UserRepository(db).get_by_id(session.user_id)
+    if user is None or not user.is_active:
+        await session_repo.revoke_session(session)
+        await _publish_session_revocation(session.id)
+        return _invalid_session_response("Session user is unavailable")
+
+    rotated_refresh_token = generate_refresh_token()
+    await session_repo.rotate_refresh_token(
+        session,
+        hash_refresh_token(rotated_refresh_token),
+    )
+    set_refresh_cookie(
+        response,
+        rotated_refresh_token,
+        expires_at=session.expires_at,
+    )
+    return _token_response(user, session.id)
+
+
+@router.post("/session/logout", status_code=204)
+async def logout_session(
+    request: Request,
+    response: Response,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    db: AsyncSession = Depends(get_db),
+):
+    session_repo = SessionRepository(db)
+    revoked_session_ids: set[str] = set()
+
+    refresh_token = request.cookies.get(settings.SESSION_COOKIE_NAME)
+    if refresh_token:
+        revoked_session_id = await session_repo.revoke_by_refresh_hash(
+            hash_refresh_token(refresh_token)
+        )
+        if revoked_session_id:
+            revoked_session_ids.add(revoked_session_id)
+
+    if credentials is not None:
+        payload = decode_access_token(credentials.credentials)
+        if payload and payload.get("sid") and payload.get("user_id"):
+            revoked_session_id = await session_repo.revoke_by_id_for_user(
+                payload["sid"],
+                payload["user_id"],
+            )
+            if revoked_session_id:
+                revoked_session_ids.add(revoked_session_id)
+
+    clear_refresh_cookie(response)
+    for session_id in revoked_session_ids:
+        await _publish_session_revocation(session_id)
+    response.status_code = 204
+
+
+@router.get("/sessions", response_model=list[SessionResponseSchema])
+async def list_sessions(
+    current_auth: AuthContext = Depends(get_current_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    sessions = await SessionRepository(db).list_active(current_auth.user.id)
+    current_session_id = current_auth.session.id if current_auth.session else None
+    return [
+        {
+            "id": session.id,
+            "current": session.id == current_session_id,
+            "user_agent": session.user_agent,
+            "ip_address": session.ip_address,
+            "created_at": session.created_at,
+            "last_used_at": session.last_used_at,
+            "expires_at": session.expires_at,
+        }
+        for session in sessions
+    ]
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+async def revoke_session(
+    session_id: str,
+    response: Response,
+    current_auth: AuthContext = Depends(get_current_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    revoked_session_id = await SessionRepository(db).revoke_by_id_for_user(
+        session_id,
+        current_auth.user.id,
+    )
+    if revoked_session_id is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if current_auth.session and current_auth.session.id == session_id:
+        clear_refresh_cookie(response)
+    await _publish_session_revocation(revoked_session_id)
+    response.status_code = 204
 
 
 @router.get(

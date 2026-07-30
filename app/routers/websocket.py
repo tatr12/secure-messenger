@@ -1,13 +1,16 @@
+import asyncio
 import json
 import logging
+import time
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db, redis_mgr
-from app.jwt import decode_access_token
+from app.dependencies import authenticate_access_token
 from app.models import MessageTable
-from app.repositories import MessageRepository
+from app.repositories import MessageRepository, SessionRepository
 from app.services import socket_manager
 
 router = APIRouter(tags=["Websocket Router"])
@@ -35,19 +38,20 @@ async def websocket_endpoint(
     db: AsyncSession = Depends(get_db),
 ):
     token, selected_protocol = get_websocket_credentials(websocket)
-    payload = decode_access_token(token) if token else None
+    context = await authenticate_access_token(token, db) if token else None
 
-    if payload is None:
+    if context is None:
         await websocket.close(code=1008)
         return
 
-    username = payload.get("sub")
-    if not username:
-        await websocket.close(code=1008)
-        return
+    username = context.user.username
+    session_id = context.session.id if context.session else None
+    connection_id = session_id or f"legacy-{uuid4()}"
+    access_token_expires_at = float(context.payload["exp"])
 
     await socket_manager.connect(
         username,
+        connection_id,
         websocket,
         subprotocol=selected_protocol,
     )
@@ -57,7 +61,22 @@ async def websocket_endpoint(
     try:
         while True:
             try:
-                text_data = await websocket.receive_text()
+                seconds_until_expiry = access_token_expires_at - time.time()
+                if seconds_until_expiry <= 0:
+                    await websocket.close(code=1008, reason="Access token expired")
+                    break
+
+                text_data = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=seconds_until_expiry,
+                )
+
+                if session_id and not await SessionRepository(db).get_active_by_id(
+                    session_id,
+                    user_id=context.user.id,
+                ):
+                    await websocket.close(code=1008, reason="Session revoked")
+                    break
 
                 print(
                     f"[WS RECEIVE] from={username} bytes={len(text_data)}",
@@ -106,6 +125,9 @@ async def websocket_endpoint(
 
             except WebSocketDisconnect:
                 break  # <-- выходим из while, не continue
+            except TimeoutError:
+                await websocket.close(code=1008, reason="Access token expired")
+                break
             except json.JSONDecodeError:
                 logger.warning(f"[{username}] невалидный JSON")
                 continue
@@ -114,9 +136,9 @@ async def websocket_endpoint(
                 continue
 
     finally:
-        socket_manager.disconnect(username, websocket)
+        socket_manager.disconnect(username, connection_id, websocket)
 
-        if username not in socket_manager.active_connections:
+        if not socket_manager.has_connections(username):
             await redis_mgr.set_offline(username)
             logger.info(f"[{username}] отключился")
         else:

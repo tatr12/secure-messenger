@@ -1,6 +1,7 @@
 import redis.asyncio as aioredis
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
+
 from app.config import settings
 
 engine = create_async_engine(settings.DATABASE_URL, echo=False)
@@ -32,8 +33,9 @@ class RedisManager:
         await self.client.publish(channel, json.dumps(data))
 
     async def subscribe_and_route(self):
-        from app.services import socket_manager  # здесь чтобы избежать circular import
         import json
+
+        from app.services import socket_manager  # здесь чтобы избежать circular import
 
         pubsub = self.client.pubsub()
         await pubsub.subscribe("messenger_routing")
@@ -43,6 +45,15 @@ class RedisManager:
                 continue
             try:
                 packet = json.loads(raw["data"])
+                if packet.get("type") == "session_revoked":
+                    disconnected_users = await socket_manager.close_session(
+                        packet.get("session_id", "")
+                    )
+                    for disconnected_user in disconnected_users:
+                        if not socket_manager.has_connections(disconnected_user):
+                            await self.set_offline(disconnected_user)
+                    continue
+
                 recipient = packet.get("to")
 
                 print(

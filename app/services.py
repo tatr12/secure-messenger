@@ -1,14 +1,14 @@
-from fastapi import WebSocket
-from typing import Dict
 import json
 import logging
 import secrets
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from urllib.parse import urlencode
 
 import aiosmtplib
 import redis.asyncio as aioredis  # Подключаем асинхронный Redis напрямую 🚀
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+from fastapi import WebSocket
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -21,24 +21,42 @@ redis_client = aioredis.from_url(redis_url, decode_responses=True)
 
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: Dict[str, WebSocket] = {}
+        self.active_connections: dict[str, dict[str, WebSocket]] = {}
 
     async def connect(
         self,
         username: str,
+        connection_id: str,
         websocket: WebSocket,
         subprotocol: str | None = None,
     ):
         await websocket.accept(subprotocol=subprotocol)
-        self.active_connections[username] = websocket
+        user_connections = self.active_connections.setdefault(username, {})
+        previous_websocket = user_connections.get(connection_id)
+        user_connections[connection_id] = websocket
+
+        if previous_websocket is not None and previous_websocket is not websocket:
+            try:
+                await previous_websocket.close(code=1000, reason="Connection replaced")
+            except Exception:
+                logger.info("Previous WebSocket was already closed")
 
         print(
             f"[SOCKET CONNECT] user={username} active={list(self.active_connections.keys())}",
             flush=True,
         )
 
-    def disconnect(self, username: str, websocket: WebSocket | None = None):
-        current_websocket = self.active_connections.get(username)
+    def disconnect(
+        self,
+        username: str,
+        connection_id: str,
+        websocket: WebSocket | None = None,
+    ):
+        user_connections = self.active_connections.get(username)
+        if not user_connections:
+            return
+
+        current_websocket = user_connections.get(connection_id)
 
         if current_websocket is None:
             return
@@ -50,21 +68,53 @@ class ConnectionManager:
             )
             return
 
-        del self.active_connections[username]
-        logger.info(f"[SocketManager] Соединение {username} удалено")
+        del user_connections[connection_id]
+        if not user_connections:
+            del self.active_connections[username]
+        logger.info(f"[SocketManager] Соединение {username}/{connection_id} удалено")
+
+    def has_connections(self, username: str) -> bool:
+        return bool(self.active_connections.get(username))
+
+    async def close_session(self, session_id: str) -> list[str]:
+        disconnected_users = []
+        for username, user_connections in list(self.active_connections.items()):
+            websocket = user_connections.pop(session_id, None)
+            if websocket is None:
+                continue
+
+            disconnected_users.append(username)
+            try:
+                await websocket.close(code=1008, reason="Session revoked")
+            except Exception:
+                logger.info("Revoked WebSocket was already closed")
+
+            if not user_connections:
+                del self.active_connections[username]
+
+        return disconnected_users
 
     async def send_personal_message(self, message: dict, username: str):
-        ws = self.active_connections.get(username)
+        user_connections = self.active_connections.get(username, {})
         logger.info(
-            f"[SocketManager] Trying to send message to {username}, connected users: {list(self.active_connections.keys())}, ws={ws}"
+            f"[SocketManager] Trying to send message to {username}, connected users: {list(self.active_connections.keys())}, connections={len(user_connections)}"
         )
-        if ws:
-            try:
-                await ws.send_json(message)
+        if user_connections:
+            delivered = False
+            failed_connections = []
+            for connection_id, websocket in list(user_connections.items()):
+                try:
+                    await websocket.send_json(message)
+                    delivered = True
+                except Exception as error:
+                    logger.error(f"Ошибка отправки {username}: {error}")
+                    failed_connections.append((connection_id, websocket))
+
+            for connection_id, websocket in failed_connections:
+                self.disconnect(username, connection_id, websocket)
+
+            if delivered:
                 logger.info(f"[SocketManager] Message sent to {username}")
-            except Exception as e:
-                logger.error(f"Ошибка отправки {username}: {e}")
-                self.disconnect(username, ws)
         else:
             logger.warning(
                 f"[SocketManager] User {username} not in active connections!"

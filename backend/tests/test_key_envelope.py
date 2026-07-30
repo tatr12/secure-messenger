@@ -7,7 +7,7 @@ import pytest
 from fastapi import HTTPException, Response
 from pydantic import ValidationError
 
-from app.dependencies import get_current_user
+from app.dependencies import get_current_auth, get_current_user
 from app.key_envelopes import (
     KEY_ENVELOPE_V2_IV_SENTINEL,
     KEY_ENVELOPE_V2_PREFIX,
@@ -276,7 +276,7 @@ def test_v2_envelope_cannot_be_overwritten(monkeypatch):
 
 def test_missing_bearer_token_returns_unauthorized():
     with pytest.raises(HTTPException) as error:
-        asyncio.run(get_current_user(credentials=None, db=None))
+        asyncio.run(get_current_auth(credentials=None, db=None))
 
     assert error.value.status_code == 401
     assert error.value.headers == {"WWW-Authenticate": "Bearer"}
