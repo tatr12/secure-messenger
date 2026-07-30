@@ -10,6 +10,11 @@ import {
   updateKeyEnvelope,
 } from './crypto';
 import { createSessionLifecycle } from './sessionLifecycle';
+import {
+  getSessionRefreshDelay,
+  refreshSession,
+  revokeSession,
+} from './sessionApi';
 import { buildWebSocketProtocols, buildWebSocketUrl } from './websocketUrl';
 
 // Укажи путь к звуковому файлу (из папки public или внешний URL)
@@ -36,6 +41,8 @@ export function useMessenger() {
   const [viewingPartnerProfile, setViewingPartnerProfile] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
 
   // Новый стейт для хранения кастомных пуш-уведомлений
   const [toasts, setToasts] = useState([]);
@@ -43,6 +50,8 @@ export function useMessenger() {
   const outboundQueueRef = useRef([]);
   const myKeysRef = useRef({ publicKey: null, privateKey: null });
   const sessionTokenRef = useRef(null);
+  const sessionRefreshPromiseRef = useRef(null);
+  const sessionRevocationPromiseRef = useRef(null);
   const wsRef = useRef(null);
   const sessionLifecycleRef = useRef(null);
 
@@ -79,6 +88,65 @@ export function useMessenger() {
     return generation;
   };
 
+  function scheduleSessionRefresh(user, sessionGeneration, expiresIn) {
+    sessionLifecycleRef.current.scheduleRefresh(
+      sessionGeneration,
+      () => {
+        void refreshAccessToken(user, sessionGeneration);
+      },
+      getSessionRefreshDelay(expiresIn),
+    );
+  }
+
+  async function refreshAccessToken(user, sessionGeneration) {
+    const lifecycle = sessionLifecycleRef.current;
+    if (!lifecycle.isActive(sessionGeneration)) return;
+
+    if (sessionRefreshPromiseRef.current) {
+      return sessionRefreshPromiseRef.current;
+    }
+
+    const refreshPromise = (async () => {
+      try {
+        const data = await refreshSession();
+        if (!lifecycle.isActive(sessionGeneration)) return;
+
+        sessionTokenRef.current = data.access_token;
+        scheduleSessionRefresh(user, sessionGeneration, data.expires_in);
+        initWebSocket(user, data.access_token, sessionGeneration);
+        return data.access_token;
+      } catch (error) {
+        if (!lifecycle.isActive(sessionGeneration)) return;
+
+        if (error?.status === 401) {
+          await terminateSession('session-expired', { revokeRemote: false });
+          showNotification(
+            'Сессия завершена. Войдите в аккаунт снова.',
+            'error',
+          );
+          return;
+        }
+
+        lifecycle.scheduleRefresh(
+          sessionGeneration,
+          () => {
+            void refreshAccessToken(user, sessionGeneration);
+          },
+          15_000,
+        );
+      }
+    })();
+
+    sessionRefreshPromiseRef.current = refreshPromise;
+    try {
+      await refreshPromise;
+    } finally {
+      if (sessionRefreshPromiseRef.current === refreshPromise) {
+        sessionRefreshPromiseRef.current = null;
+      }
+    }
+  }
+
   // Инициализируем аудио-движок на фронте
   useEffect(() => {
     audioRef.current = new Audio(NOTIFICATION_SOUND_URL);
@@ -112,6 +180,7 @@ export function useMessenger() {
       outboundQueueRef.current = [];
       myKeysRef.current = { publicKey: null, privateKey: null };
       sessionTokenRef.current = null;
+      sessionRefreshPromiseRef.current = null;
     };
   }, []);
 
@@ -262,9 +331,12 @@ export function useMessenger() {
     if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
 
     try {
-      const res = await fetch(`/user/${username}/update`, {
+      const res = await fetch('/user/update', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionTokenRef.current}`,
+        },
         body: JSON.stringify({ display_name: newName, bio: newBio })
       });
       if (
@@ -279,6 +351,72 @@ export function useMessenger() {
         setUserCache(prev => ({ ...prev, [username]: data.display_name }));
       }
     } catch (e) { console.error(e); }
+  }
+
+  async function loadSessions() {
+    const lifecycle = sessionLifecycleRef.current;
+    const sessionGeneration = lifecycle.currentGeneration();
+    if (!lifecycle.isActive(sessionGeneration)) return;
+
+    setSessionsLoading(true);
+    try {
+      const requestSessions = () => fetch('/sessions', {
+        headers: { Authorization: `Bearer ${sessionTokenRef.current}` },
+        cache: 'no-store',
+      });
+      let response = await requestSessions();
+
+      if (response.status === 401 && lifecycle.isActive(sessionGeneration)) {
+        await refreshAccessToken(username, sessionGeneration);
+        if (!lifecycle.isActive(sessionGeneration)) return;
+        response = await requestSessions();
+      }
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (lifecycle.isActive(sessionGeneration)) {
+        setSessions(data);
+      }
+    } catch (error) {
+      if (lifecycle.isActive(sessionGeneration)) {
+        console.error('[AUTH] Не удалось получить список сессий', error);
+        showNotification('Не удалось загрузить активные сессии.', 'error');
+      }
+    } finally {
+      if (lifecycle.isActive(sessionGeneration)) {
+        setSessionsLoading(false);
+      }
+    }
+  }
+
+  async function revokeDeviceSession(sessionId) {
+    const lifecycle = sessionLifecycleRef.current;
+    const sessionGeneration = lifecycle.currentGeneration();
+    if (!lifecycle.isActive(sessionGeneration)) return false;
+
+    try {
+      const response = await fetch(`/sessions/${encodeURIComponent(sessionId)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${sessionTokenRef.current}` },
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      if (lifecycle.isActive(sessionGeneration)) {
+        setSessions((current) => current.filter((item) => item.id !== sessionId));
+        showNotification('Сессия на устройстве завершена.', 'success');
+      }
+      return true;
+    } catch (error) {
+      if (lifecycle.isActive(sessionGeneration)) {
+        console.error('[AUTH] Не удалось завершить сессию', error);
+        showNotification('Не удалось завершить выбранную сессию.', 'error');
+      }
+      return false;
+    }
   }
 
   function sendReadReceipt(senderUsername) {
@@ -403,6 +541,10 @@ export function useMessenger() {
   const handleAuth = async () => {
     if (!username || !password) return;
 
+    if (sessionRevocationPromiseRef.current) {
+      await sessionRevocationPromiseRef.current;
+    }
+
     if (isRegMode) {
       if (!email || !confirmPassword) return;
       if (password !== confirmPassword) {
@@ -466,6 +608,7 @@ export function useMessenger() {
         const loginResp = await fetch(`/login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
           body: JSON.stringify({
             username: username,
             password: password,
@@ -484,6 +627,12 @@ export function useMessenger() {
           setUsername(loggedUser.username);
           setDisplayName(loggedUser.display_name || loggedUser.username);
           setIsLoggedIn(true);
+
+          scheduleSessionRefresh(
+            loggedUser.username,
+            sessionGeneration,
+            loginData.expires_in,
+          );
 
           initWebSocket(
             loggedUser.username,
@@ -517,6 +666,7 @@ export function useMessenger() {
         const resp = await fetch(`/login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
           body: JSON.stringify({
             username: username,
             password: password,
@@ -574,6 +724,11 @@ export function useMessenger() {
             'Не удалось разблокировать ключи аккаунта. Вход остановлен.',
             'error'
           );
+          try {
+            await revokeSession(data.access_token);
+          } catch (revokeError) {
+            console.warn('[AUTH] Не удалось отозвать незавершённую сессию', revokeError);
+          }
           return;
         }
 
@@ -584,6 +739,12 @@ export function useMessenger() {
         setUsername(loggedUser.username);
         setDisplayName(loggedUser.display_name || loggedUser.username);
         setIsLoggedIn(true);
+
+        scheduleSessionRefresh(
+          loggedUser.username,
+          sessionGeneration,
+          data.expires_in,
+        );
 
         await syncCloudHistory(
           myKeysRef.current.privateKey,
@@ -663,11 +824,15 @@ export function useMessenger() {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (!isCurrentSocket()) return;
 
       wsRef.current = null;
       setWsStatus('offline');
+      if (event.code === 1008) {
+        void refreshAccessToken(user, sessionGeneration);
+        return;
+      }
       lifecycle.scheduleReconnect(
         sessionGeneration,
         () => initWebSocket(user, token, sessionGeneration),
@@ -869,7 +1034,7 @@ export function useMessenger() {
     }
   }
 
-  function terminateSession(reason) {
+  function clearLocalSession(reason) {
     sessionLifecycleRef.current.end();
     closeCurrentWebSocket(
       reason === 'switch-account' ? 'Switching account' : 'Logging out'
@@ -879,6 +1044,7 @@ export function useMessenger() {
     outboundQueueRef.current = [];
     userCacheRef.current = {};
     inFlightFetchesRef.current.clear();
+    sessionRefreshPromiseRef.current = null;
 
     if (audioRef.current) {
       audioRef.current.pause();
@@ -914,7 +1080,33 @@ export function useMessenger() {
     setViewingPartnerProfile(null);
     setSearchQuery('');
     setSearchResults([]);
+    setSessions([]);
+    setSessionsLoading(false);
     setToasts([]);
+  }
+
+  async function terminateSession(reason, { revokeRemote = true } = {}) {
+    const accessToken = sessionTokenRef.current;
+    const pendingRefresh = sessionRefreshPromiseRef.current;
+    clearLocalSession(reason);
+
+    if (!revokeRemote) return;
+    const revocationPromise = (async () => {
+      if (pendingRefresh) {
+        await pendingRefresh;
+      }
+      await revokeSession(accessToken);
+    })().catch((error) => {
+      console.warn('[AUTH] Серверный отзыв сессии не подтверждён', error);
+    });
+    sessionRevocationPromiseRef.current = revocationPromise;
+    try {
+      await revocationPromise;
+    } finally {
+      if (sessionRevocationPromiseRef.current === revocationPromise) {
+        sessionRevocationPromiseRef.current = null;
+      }
+    }
   }
 
   function logout() {
@@ -945,6 +1137,7 @@ export function useMessenger() {
     isProfileOpen, setIsProfileOpen,
     searchQuery, setSearchQuery,
     searchResults,
+    sessions, sessionsLoading, loadSessions, revokeDeviceSession,
     viewingPartnerProfile, setViewingPartnerProfile,
     toasts, showNotification, dismissToast, // Выводим управление пушами наружу
     handleAuth, sendMessage, sendReadReceipt, logout, switchAccount,

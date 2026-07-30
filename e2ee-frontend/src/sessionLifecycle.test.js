@@ -57,3 +57,19 @@ test('a stale timer cannot reconnect after a new session starts', () => {
   assert.equal(lifecycle.isActive(secondGeneration), true);
   assert.equal(reconnectCount, 0);
 });
+
+test('ending a session cancels its pending token refresh', () => {
+  const timers = createFakeTimers();
+  const lifecycle = createSessionLifecycle(timers);
+  const generation = lifecycle.begin();
+  let refreshCount = 0;
+
+  lifecycle.scheduleRefresh(generation, () => {
+    refreshCount += 1;
+  }, 840_000);
+
+  assert.equal(timers.callbacks.size, 1);
+  lifecycle.end();
+  assert.equal(timers.callbacks.size, 0);
+  assert.equal(refreshCount, 0);
+});
