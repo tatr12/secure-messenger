@@ -17,7 +17,7 @@ export async function derivePasswordKey(password, username) {
 export async function decryptMessagePacket(msg, myPrivateKey, currentUsername) {
   try {
     const partner = msg.from === currentUsername ? msg.to : msg.from;
-    const res = await fetch(`http://127.0.0.2:8000/user/${partner}`);
+    const res = await fetch(`/user/${partner}`);
     const partnerData = await res.json();
     const partnerPublicKey = await window.crypto.subtle.importKey("jwk", partnerData.public_key, { name: "ECDH", namedCurve: "P-256" }, true, []);
     

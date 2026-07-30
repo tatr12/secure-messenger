@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from app.database import engine, redis_mgr
+from app.database import engine, Base, redis_mgr
 from app.services import socket_manager
 from app.routers import auth, websocket
 
@@ -31,8 +31,8 @@ async def lifespan(app: FastAPI):
     retries = 5
     while retries > 0:
         try:
-            async with engine.begin():
-                pass
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
             print("🤖 [SYSTEM] Успешное подключение к PostgreSQL!")
             break
         except Exception:

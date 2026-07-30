@@ -43,7 +43,7 @@ class UserRepository:
         q_filter = f"%{query.lower()}%"
         stmt = (
             select(UserTable)
-            .where(UserTable.username.like(q_filter), UserTable.username != exclude)
+            .where(UserTable.username.ilike(q_filter), UserTable.username != exclude)
             .limit(5)
         )
         result = await self.db.execute(stmt)

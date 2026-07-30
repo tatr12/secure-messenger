@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import {
   Paperclip,
   Smile,
@@ -6,13 +8,31 @@ import {
 
 import './Composer.css';
 
-export default function Composer() {
+export default function Composer({ onSend }) {
+  const [text, setText] = useState('');
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+
+    const value = text.trim();
+
+    if (!value) return;
+
+    onSend?.(value);
+
+    setText('');
+  };
+
   return (
     <form
       className="composer"
-      onSubmit={(event) => event.preventDefault()}
+      onSubmit={handleSubmit}
     >
-      <button type="button" aria-label="Добавить файл" title="Добавить файл">
+      <button 
+        type="button" 
+        aria-label="Добавить файл" 
+        title="Добавить файл"
+      >
         <Paperclip size={19} strokeWidth={1.8} />
       </button>
 
@@ -21,6 +41,8 @@ export default function Composer() {
 
         <input
           type="text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
           placeholder="Сообщение..."
           aria-label="Сообщение"
         />

@@ -1,44 +1,44 @@
+import { useEffect, useRef } from "react";
 import DaySeparator from '../DaySeparator/DaySeparator';
 import MessageCard from '../MessageCard/MessageCard';
 
 import './MessageList.css';
 
-const demoMessages = [
-  {
-    id: 1,
-    text: 'Привет! Как продвигается VØIDEN?',
-    time: '12:41',
-    isMine: false,
-  },
-  {
-    id: 2,
-    text: 'Отлично. Сейчас собираю новый интерфейс.',
-    time: '12:42',
-    isMine: true,
-    status: 'Прочитано',
-  },
-  {
-    id: 3,
-    text: 'Уже выглядит очень чисто и минималистично.',
-    time: '12:43',
-    isMine: false,
-  },
-];
+export default function MessageList({ messages = [], username }) {
+  const listRef = useRef(null);
 
-export default function MessageList() {
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+
+    list.scrollTop = list.scrollHeight;
+  }, [messages]);
+
   return (
-    <div className="message-list">
+    <div className="message-list" ref={listRef}>
       <DaySeparator label="Сегодня" />
 
-      {demoMessages.map((message) => (
-        <MessageCard
-          key={message.id}
-          text={message.text}
-          time={message.time}
-          isMine={message.isMine}
-          status={message.status}
-        />
-      ))}
+      {messages.length === 0 ? (
+        <div style={{
+          textAlign: 'center',
+          padding: '40px',
+          color: '#999'
+        }}>
+          Нет сообщений
+        </div>
+      ) : (
+        messages.map((message) => (
+          <MessageCard
+            key={message.id}
+            text={message.text || message.content}
+            time={message.time}
+            isMine={message.from === username || message.isMine}
+            status={message.status}
+            edited={message.edited}
+            deleted={message.deleted}
+          />
+        ))
+      )}
     </div>
   );
 }

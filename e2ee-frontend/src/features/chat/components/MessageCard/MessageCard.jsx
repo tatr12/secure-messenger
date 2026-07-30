@@ -4,17 +4,23 @@ export default function MessageCard({
   text,
   time,
   isMine = false,
-  status = '',
+  status = "",
+  edited = false,
+  deleted = false,
 }) {
   return (
     <article className={`message-card ${isMine ? 'is-mine' : ''}`}>
-      <p className="message-card__text">{text}</p>
+      <p className="message-card__text">
+        {text}
+      </p>
 
       <div className="message-card__meta">
         <time>{time}</time>
 
-        {isMine && status && (
-          <span>{status}</span>
+        {isMine && (
+          <span className="message-status">
+            {status === 'read' ? '✓✓' : '✓'}
+          </span>
         )}
       </div>
     </article>

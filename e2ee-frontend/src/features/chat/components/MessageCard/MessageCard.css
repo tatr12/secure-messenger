@@ -70,3 +70,9 @@
     transform: translateY(0);
   }
 }
+
+.message-card__deleted{
+  margin:0;
+  font-style:italic;
+  opacity:.65;
+}

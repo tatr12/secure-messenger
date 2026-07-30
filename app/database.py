@@ -44,6 +44,12 @@ class RedisManager:
             try:
                 packet = json.loads(raw["data"])
                 recipient = packet.get("to")
+
+                print(
+                    f"[REDIS ROUTER] packet={packet} recipient={recipient} active={list(socket_manager.active_connections.keys())}",
+                    flush=True,
+                )
+
                 if recipient:
                     await socket_manager.send_personal_message(packet, recipient)
             except Exception as e:

@@ -1,7 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useMessenger } from './useMessenger';
-import { Button } from './ui/Button/Button';
-import { Input } from './ui/Input/Input';
 import LoginPage from './pages/Login/LoginPage';
 import ChatPage from './pages/Chat/ChatPage';
 
@@ -28,7 +26,7 @@ export default function App() {
     const verifyEmail = async () => {
       setVerificationLoading(true);
       try {
-        const res = await fetch(`http://127.0.0.2:8000/verify?token=${encodeURIComponent(token)}`);
+        const res = await fetch(`/verify?token=${encodeURIComponent(token)}`);
         const data = await res.json();
         if (!res.ok) {
           setVerificationError(data.error || 'Ошибка при подтверждении email.');
@@ -50,8 +48,6 @@ export default function App() {
   useEffect(() => {
     if (m.isLoggedIn) {
       m.showNotification(`Терминал инициализирован. Добро пожаловать, ${m.displayName}`, 'success');
-      // Инициализируем WebSocket при логине
-      m.initWebSocket(m.username);
     }
   }, [m.isLoggedIn]);
 
@@ -153,193 +149,27 @@ export default function App() {
   };
 
   if (!m.isLoggedIn) {
-    return <ChatPage />;
+    return (
+      <LoginPage
+        isRegister={m.isRegMode}
+        username={m.username}
+        email={m.email}
+        password={m.password}
+        confirmPassword={m.confirmPassword}
+        onUsernameChange={(event) => m.setUsername(event.target.value)}
+        onEmailChange={(event) => m.setEmail(event.target.value)}
+        onPasswordChange={(event) => m.setPassword(event.target.value)}
+        onConfirmPasswordChange={(event) =>
+          m.setConfirmPassword(event.target.value)
+        }
+        onSubmit={handleAuthSubmit}
+        onSwitchMode={m.setIsRegMode}
+        verificationLoading={verificationLoading}
+        verificationStatus={verificationStatus}
+        verificationError={verificationError}
+      />
+    );
   }
 
-  return (
-    <div style={styles.container}>
-
-      {/* 🛠️ ОКНО СОБСТВЕННОГО ПРОФИЛЯ */}
-      {m.isProfileOpen && (
-        <div style={styles.modal}>
-          <div style={{ ...styles.authContainer, width: 380, padding: 25, display: 'flex', flexDirection: 'column', gap: 16, textAlign: 'center' }}>
-            <div style={styles.avatarPlaceholder}>[ NO PHOTO ]</div>
-            <div style={{ fontSize: 22, fontWeight: 'bold', color: '#ff0033' }}>{m.displayName}</div>
-            <div style={styles.infoBlock}>
-              <span style={{ fontSize: 10, color: '#444' }}>СИСТЕМНЫЙ ID</span>
-              <span style={{ color: '#ff0033', fontSize: 14, fontWeight: 'bold' }}>#{m.userId || 'GEN_1'}</span>
-            </div>
-            <div style={styles.infoBlock}>
-              <span style={{ fontSize: 10, color: '#444' }}>СИСТЕМНЫЙ АДРЕС</span>
-              <span style={{ color: '#aaa', fontSize: 14 }}>@{m.username}</span>
-            </div>
-            <div style={styles.infoBlock}>
-              <span style={{ fontSize: 10, color: '#444' }}>КАСТОМНЫЙ СТАТУС ({newBioInput.length}/32)</span>
-              <span style={{ color: '#888', fontSize: 13, fontStyle: 'italic' }}>«{m.bio}»</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <input style={styles.input} placeholder="Изменить имя профиля..." value={newNickInput} onChange={e => setNewNickInput(e.target.value)} />
-              <input style={styles.input} placeholder="Изменить статус..." value={newBioInput} maxLength={32} onChange={e => setNewBioInput(e.target.value)} />
-            </div>
-            <button style={styles.btn} onClick={async () => {
-              try {
-                await m.changeProfileData(newNickInput, newBioInput);
-                m.setIsProfileOpen(false);
-                m.showNotification('Ядро обновлено: данные реестра изменены', 'success');
-              } catch (e) {
-                m.showNotification('Ошибка обновления данных реестра', 'error');
-              }
-            }}>Сохранить реестр</button>
-            <button style={{ ...styles.btn, background: 'transparent', color: '#ff0033' }} onClick={() => m.setIsProfileOpen(false)}>Закрыть</button>
-          </div>
-        </div>
-      )}
-
-      {/* 👁️ ОКНО ПРОСМОТРА ЧУЖОГО ПРОФИЛЯ */}
-      {m.viewingPartnerProfile && (
-        <div style={styles.modal}>
-          <div style={{ ...styles.authContainer, width: 380, padding: 25, display: 'flex', flexDirection: 'column', gap: 16, textAlign: 'center' }}>
-            <div style={styles.avatarPlaceholder}>[ NO PHOTO ]</div>
-            <div style={{ fontSize: 22, fontWeight: 'bold', color: '#ff0033' }}>{m.viewingPartnerProfile.display_name}</div>
-            <div style={styles.infoBlock}>
-              <span style={{ fontSize: 10, color: '#444' }}>СИСТЕМНЫЙ ID ПОЛЬЗОВАТЕЛЯ</span>
-              <span style={{ color: '#aaa', fontSize: 14, fontWeight: 'bold' }}>#{m.viewingPartnerProfile.id || 'GEN_X'}</span>
-            </div>
-            <div style={styles.infoBlock}>
-              <span style={{ fontSize: 10, color: '#444' }}>СЕТЕВОЙ СТАТУС</span>
-              <span style={{ color: m.viewingPartnerProfile.is_online ? '#00ff66' : '#ff0033', fontWeight: 'bold' }}>
-                {m.viewingPartnerProfile.is_online ? '● В СЕТИ' : '○ ОФФЛАЙН'}
-              </span>
-            </div>
-            <div style={styles.infoBlock}>
-              <span style={{ fontSize: 10, color: '#444' }}>СИСТЕМНЫЙ АДРЕС</span>
-              <span style={{ color: '#aaa', fontSize: 14 }}>@{m.viewingPartnerProfile.username}</span>
-            </div>
-            <div style={styles.infoBlock}>
-              <span style={{ fontSize: 10, color: '#444' }}>СТАТУС ПОЛЬЗОВАТЕЛЯ</span>
-              <span style={{ color: '#888', fontSize: 13, fontStyle: 'italic' }}>«{m.viewingPartnerProfile.bio}»</span>
-            </div>
-            <button style={styles.btn} onClick={() => m.setViewingPartnerProfile(null)}>Закрыть профиль</button>
-          </div>
-        </div>
-      )}
-
-      {/* ЛЕВАЯ ПАНЕЛЬ */}
-      <div style={styles.sidebar}>
-        <div style={{ padding: 20, borderBottom: '1px solid rgba(0, 0, 0, 0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#07070a' }}>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 'bold', color: '#ff0033', cursor: 'pointer' }} onClick={() => m.setIsProfileOpen(true)}>
-              {m.displayName} <span style={styles.badge(m.wsStatus === 'online')} />
-            </div>
-            <div style={{ fontSize: 10, color: '#555' }}>@{m.username} (ID: #{m.userId || '1'})</div>
-          </div>
-          <button onClick={() => { m.logout(); m.showNotification('Сессия terminala разорвана', 'info'); }} style={{ background: 'none', border: 'none', color: '#555', fontSize: 11, cursor: 'pointer' }}>[ВЫХОД]</button>
-        </div>
-
-        {/* ЖИВОЙ ПОИСК */}
-        <div style={{ padding: 15, borderBottom: '1px solid rgba(0, 0, 0, 0.08)', position: 'relative' }}>
-          <input
-            style={{ ...styles.input, padding: 10, width: '100%', boxSizing: 'border-box', fontSize: 13 }}
-            placeholder="Поиск контактов в сети..."
-            value={m.searchQuery}
-            onChange={e => m.setSearchQuery(e.target.value)}
-          />
-          {m.searchResults.length > 0 && (
-            <div style={styles.searchDropdown}>
-              {m.searchResults.map(user => (
-                <div
-                  key={user.username}
-                  style={styles.searchResultItem}
-                  onClick={() => { m.tryStartChat(user.username); m.showNotification(`Подключение к каналу @${user.username}`, 'info'); }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = '#1a0508'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                >
-                  <span style={{ color: '#ff0033', fontWeight: 'bold', fontSize: 13 }}>
-                    {user.display_name} <span style={styles.badge(user.is_online)} />
-                  </span>
-                  <span style={{ color: '#555', fontSize: 11 }}>@{user.username}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {m.searchQuery && m.searchResults.length === 0 && (
-            <div style={{ ...styles.searchDropdown, padding: 12, color: '#444', fontSize: 11, textAlign: 'center' }}>НЕТ СОВПАДЕНИЙ</div>
-          )}
-        </div>
-
-        <div style={{ padding: '10px 20px', fontSize: 11, color: '#333', borderBottom: '1px solid rgba(0, 0, 0, 0.08)' }}>ОТКРЫТЫЕ КАНАЛЫ</div>
-
-        {/* СПИСОК ЧАТОВ */}
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {m.chatPartners.map(partner => (
-            <div key={partner} style={styles.chatItem(partner === m.activeChatUser)} onClick={() => m.setActiveChatUser(partner)}>
-              <div style={{ color: partner === m.activeChatUser ? '#ff0033' : '#aaa', fontSize: 14 }}>
-                {m.userCache[partner] || partner}
-              </div>
-              <div style={{ fontSize: 10, color: '#444' }}>@{partner}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ПРАВАЯ ПАНЕЛЬ ЧАТА */}
-      <div style={styles.mainChat}>
-        {m.activeChatUser ? (
-          <>
-            <div
-              style={{ padding: 16, borderBottom: '1px solid rgba(0, 0, 0, 0.08)', background: '#07070a', cursor: 'pointer' }}
-              onClick={() => m.inspectPartnerProfile(m.activeChatUser)}
-            >
-              КАНАЛ СВЯЗИ: <b style={{ color: '#ff0033' }}>{m.userCache[m.activeChatUser] || m.activeChatUser}</b>
-              <span style={{ fontSize: 11, color: '#444', marginLeft: 6 }}>@{m.activeChatUser} (Нажмите для инфо)</span>
-            </div>
-
-            <div style={{ flex: 1, padding: 20, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {m.allMessages.filter(msg => (msg.from === m.username && msg.to === m.activeChatUser) || (msg.from === m.activeChatUser && msg.to === m.username)).map(msg => {
-                const isMe = msg.from === m.username;
-                return (
-                  <div key={msg.id} style={styles.bubble(isMe)}>
-                    <div style={{ color: isMe ? '#ff0033' : '#eee' }}>{msg.text}</div>
-                    <div style={{ fontSize: 9, color: '#444', marginTop: 5, textAlign: 'right', display: 'flex', justifyContent: 'flex-end', gap: 5 }}>
-                      {msg.time}
-                      {isMe && (msg.status === 'pending' ? '⏳' : msg.status === 'read' ? <span style={{ color: '#00ff66', fontWeight: 'bold' }}>✓✓</span> : <span style={{ color: '#555' }}>✓</span>)}
-                    </div>
-                  </div>
-                );
-              })}
-              <div ref={messagesEndRef} />
-            </div>
-            <form style={{ padding: 20, borderTop: '1px solid #1a1a24', display: 'flex', gap: 10, background: '#07070a' }} onSubmit={(e) => { e.preventDefault(); m.sendMessage(m.activeChatUser); }}>
-              <input style={{ ...styles.input, flex: 1 }} placeholder="Шифрованный поток данных..." value={m.message} onChange={e => m.setMessage(e.target.value)} />
-              <button style={styles.btn} type="submit">ПЕРЕДАТЬ</button>
-            </form>
-          </>
-        ) : (
-          <div style={{ margin: 'auto', textAlign: 'center', color: '#222' }}>
-            <div style={{ fontSize: 40, marginBottom: 10 }}>💀</div>
-            <div>СИСТЕМА ОЖИДАНИЯ ПОДКЛЮЧЕНИЯ</div>
-          </div>
-        )}
-      </div>
-
-      {/* 🔴 МОДЕРНИЗИРОВАННЫЙ КИБЕРПАНК КОНТЕЙНЕР ДЛЯ ПУШЕЙ */}
-      <div style={styles.toastContainer}>
-        {m.toasts.map((toast) => (
-          <div key={toast.id} style={styles.toast(toast.type, toast.fadeOut)}>
-            {/* Кнопка ручного закрытия "крестик" */}
-            <button style={styles.toastClose} onClick={() => m.dismissToast(toast.id)}>×</button>
-
-            {/* Если это пуш чата, выведем жирный заголовок отправителя */}
-            {toast.title && (
-              <div style={{ color: '#ff0033', fontWeight: 'bold', marginBottom: 4, fontSize: 11, textTransform: 'uppercase' }}>
-                Входящий пакет [{toast.title}]:
-              </div>
-            )}
-            <span style={{ wordBreak: 'break-word', paddingRight: 10 }}>{toast.message}</span>
-          </div>
-        ))}
-      </div>
-
-    </div>
-  );
+  return <ChatPage messenger={m} />;
 }

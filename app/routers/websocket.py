@@ -40,7 +40,20 @@ async def websocket_endpoint(
         while True:
             try:
                 text_data = await websocket.receive_text()
+
+                print(
+                    f"[WS RECEIVE] from={username} bytes={len(text_data)}",
+                    flush=True,
+                )
+
                 data = json.loads(text_data)
+
+                print(
+                    f"[WS PACKET] from={username} to={data.get('to')} "
+                    f"type={data.get('type', 'message')} "
+                    f"has_ciphertext={bool(data.get('ciphertext'))}",
+                    flush=True,
+                )
 
                 if data.get("type") == "read_receipt":
                     sender_of_msg = data.get("sender")
@@ -51,9 +64,6 @@ async def websocket_endpoint(
                         "to": sender_of_msg,
                     }
                     await redis_mgr.publish_message("messenger_routing", receipt_packet)
-                    await socket_manager.send_personal_message(
-                        receipt_packet, sender_of_msg
-                    )
                 else:
                     db_msg = MessageTable(
                         sender=username,
@@ -75,7 +85,6 @@ async def websocket_endpoint(
                         "status": "sent",
                     }
                     await redis_mgr.publish_message("messenger_routing", packet)
-                    await socket_manager.send_personal_message(packet, db_msg.receiver)
 
             except WebSocketDisconnect:
                 break  # <-- выходим из while, не continue
@@ -87,6 +96,13 @@ async def websocket_endpoint(
                 continue
 
     finally:
-        socket_manager.disconnect(username)
-        await redis_mgr.set_offline(username)
-        logger.info(f"[{username}] отключился")
+        socket_manager.disconnect(username, websocket)
+
+        if username not in socket_manager.active_connections:
+            await redis_mgr.set_offline(username)
+            logger.info(f"[{username}] отключился")
+        else:
+            logger.info(
+                f"[{username}] старый WebSocket закрыт, "
+                "новое соединение продолжает работать"
+            )
