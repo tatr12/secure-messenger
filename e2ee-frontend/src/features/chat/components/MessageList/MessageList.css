@@ -19,3 +19,9 @@
     ),
     var(--color-surface);
 }
+
+.message-list__empty {
+  padding: 40px;
+  color: var(--color-text-muted);
+  text-align: center;
+}

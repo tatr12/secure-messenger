@@ -16,6 +16,18 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  padding: 5px 8px 5px 5px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color var(--transition-fast);
+}
+
+.topbar__user:hover {
+  background: var(--color-surface-hover);
 }
 
 .topbar__avatar {
@@ -74,7 +86,7 @@
   gap: var(--space-1);
 }
 
-.topbar__actions button {
+.topbar__icon-button {
   width: 40px;
   height: 40px;
 
@@ -95,11 +107,58 @@
     transform var(--transition-fast);
 }
 
-.topbar__actions button:hover {
+.topbar__icon-button:hover,
+.topbar__icon-button.is-active {
   background: var(--color-surface-hover);
   color: var(--color-text);
 }
 
-.topbar__actions button:active {
+.topbar__icon-button:active {
   transform: scale(0.96);
+}
+
+.topbar__menu-wrap {
+  position: relative;
+}
+
+.topbar__menu {
+  position: absolute;
+  top: calc(100% + 9px);
+  right: 0;
+  z-index: 120;
+  display: grid;
+  width: 210px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: var(--shadow-md);
+  animation: topbar-menu-show var(--transition-fast);
+  backdrop-filter: blur(20px);
+}
+
+.topbar__menu button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 10px 11px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+}
+
+.topbar__menu button:hover {
+  background: var(--color-surface-hover);
+}
+
+@keyframes topbar-menu-show {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
 }

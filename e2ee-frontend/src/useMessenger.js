@@ -287,7 +287,7 @@ export function useMessenger() {
 
   async function inspectPartnerProfile(partnerLogin) {
     const sessionGeneration = sessionLifecycleRef.current.currentGeneration();
-    if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
+    if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return false;
 
     try {
       const res = await fetch(`/user/${partnerLogin}`);
@@ -298,9 +298,17 @@ export function useMessenger() {
         const data = await res.json();
         if (sessionLifecycleRef.current.isActive(sessionGeneration)) {
           setViewingPartnerProfile(data);
+          return true;
         }
       }
-    } catch (e) { console.error(e); }
+      throw new Error(`HTTP ${res.status}`);
+    } catch (error) {
+      if (sessionLifecycleRef.current.isActive(sessionGeneration)) {
+        console.error('[PROFILE] Не удалось открыть профиль собеседника', error);
+        showNotification('Не удалось загрузить профиль собеседника.', 'error');
+      }
+      return false;
+    }
   }
 
   async function tryStartChat(targetLogin) {

@@ -11,6 +11,7 @@ import AccountCenter from '../../features/account/components/AccountCenter/Accou
 import ChatList from '../../features/chat/components/ChatList/ChatList';
 import Conversation from '../../features/chat/components/Conversation/Conversation';
 import Sidebar from '../../features/chat/components/Sidebar/Sidebar';
+import PartnerProfileDialog from '../../features/profile/components/PartnerProfileDialog/PartnerProfileDialog';
 
 import './ChatPage.css';
 
@@ -28,6 +29,18 @@ export default function ChatPage({ messenger }) {
   return (
     <main className="chat-page">
       <Sidebar
+        onSectionChange={(section) => {
+          if (section === 'chats') return;
+          const sectionNames = {
+            groups: 'Группы',
+            calls: 'Звонки',
+            files: 'Файлы',
+          };
+          messenger.showNotification(
+            `${sectionNames[section]} будут реализованы отдельным этапом.`,
+            'info',
+          );
+        }}
         onOpenSettings={() => openAccountCenter('settings')}
         onOpenAccount={() => setAccountMenu((current) => !current)}
       />
@@ -129,6 +142,13 @@ export default function ChatPage({ messenger }) {
         />
       )}
 
+      {messenger.viewingPartnerProfile && (
+        <PartnerProfileDialog
+          profile={messenger.viewingPartnerProfile}
+          onClose={() => messenger.setViewingPartnerProfile(null)}
+        />
+      )}
+
       {logoutConfirm && (
         <div className="logout-overlay">
           <div className="logout-dialog">
@@ -167,9 +187,23 @@ export default function ChatPage({ messenger }) {
 
       {messenger.activeChatUser ? (
         <Conversation
+          key={messenger.activeChatUser}
           messages={messenger.allMessages || []}
           activeChatUser={messenger.activeChatUser}
+          activeChatDisplayName={
+            messenger.userCache[messenger.activeChatUser] ||
+            messenger.activeChatUser
+          }
           username={messenger.username}
+          onOpenProfile={() =>
+            messenger.inspectPartnerProfile(messenger.activeChatUser)
+          }
+          onUnavailableAction={(feature) =>
+            messenger.showNotification(
+              `${feature} будут реализованы отдельным безопасным этапом.`,
+              'info',
+            )
+          }
           sendMessage={(text) => {
             messenger.sendMessage(messenger.activeChatUser, text);
           }}

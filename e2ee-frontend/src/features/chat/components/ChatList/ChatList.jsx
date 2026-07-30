@@ -1,4 +1,5 @@
 
+import { useRef } from 'react';
 import { Search, SquarePen } from 'lucide-react';
 
 import './ChatList.css';
@@ -13,6 +14,13 @@ export default function ChatList({
   searchResults = [],
   tryStartChat,
 }) {
+  const searchInputRef = useRef(null);
+
+  const startNewChat = () => {
+    setSearchQuery('');
+    searchInputRef.current?.focus();
+  };
+
   return (
     <section className="chat-list">
       <header className="chat-list__header">
@@ -26,6 +34,7 @@ export default function ChatList({
           type="button"
           aria-label="Новый чат"
           title="Новый чат"
+          onClick={startNewChat}
         >
           <SquarePen size={18} strokeWidth={1.8} />
         </button>
@@ -35,6 +44,7 @@ export default function ChatList({
         <Search size={17} strokeWidth={1.8} />
 
         <input
+          ref={searchInputRef}
           type="search"
           placeholder="Поиск"
           value={searchQuery}

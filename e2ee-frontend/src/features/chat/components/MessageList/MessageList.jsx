@@ -4,7 +4,12 @@ import MessageCard from '../MessageCard/MessageCard';
 
 import './MessageList.css';
 
-export default function MessageList({ messages = [], username }) {
+export default function MessageList({
+  messages = [],
+  username,
+  highlightQuery = '',
+  emptyMessage = 'Нет сообщений',
+}) {
   const listRef = useRef(null);
 
   useEffect(() => {
@@ -19,13 +24,7 @@ export default function MessageList({ messages = [], username }) {
       <DaySeparator label="Сегодня" />
 
       {messages.length === 0 ? (
-        <div style={{
-          textAlign: 'center',
-          padding: '40px',
-          color: '#999'
-        }}>
-          Нет сообщений
-        </div>
+        <div className="message-list__empty">{emptyMessage}</div>
       ) : (
         messages.map((message) => (
           <MessageCard
@@ -36,6 +35,7 @@ export default function MessageList({ messages = [], username }) {
             status={message.status}
             edited={message.edited}
             deleted={message.deleted}
+            highlightQuery={highlightQuery}
           />
         ))
       )}
