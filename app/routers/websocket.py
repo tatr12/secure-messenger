@@ -14,13 +14,27 @@ router = APIRouter(tags=["Websocket Router"])
 
 logger = logging.getLogger(__name__)
 
+WEBSOCKET_PROTOCOL = "voiden"
+WEBSOCKET_AUTH_PREFIX = "voiden.auth."
+
+
+def get_websocket_credentials(websocket: WebSocket) -> tuple[str | None, str | None]:
+    requested_protocols = websocket.headers.get("sec-websocket-protocol", "").split(",")
+    for requested_protocol in requested_protocols:
+        protocol = requested_protocol.strip()
+        if protocol.startswith(WEBSOCKET_AUTH_PREFIX):
+            return protocol.removeprefix(WEBSOCKET_AUTH_PREFIX), WEBSOCKET_PROTOCOL
+
+    # Compatibility for clients deployed before the subprotocol transport.
+    return websocket.query_params.get("token"), None
+
 
 @router.websocket("/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
     db: AsyncSession = Depends(get_db),
 ):
-    token = websocket.query_params.get("token")
+    token, selected_protocol = get_websocket_credentials(websocket)
     payload = decode_access_token(token) if token else None
 
     if payload is None:
@@ -32,7 +46,11 @@ async def websocket_endpoint(
         await websocket.close(code=1008)
         return
 
-    await socket_manager.connect(username, websocket)
+    await socket_manager.connect(
+        username,
+        websocket,
+        subprotocol=selected_protocol,
+    )
     await redis_mgr.set_online(username)
     repo = MessageRepository(db)
 

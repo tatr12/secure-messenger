@@ -26,7 +26,7 @@ export default function App() {
     const verifyEmail = async () => {
       setVerificationLoading(true);
       try {
-        const res = await fetch(`/verify?token=${encodeURIComponent(token)}`);
+        const res = await fetch(`/api/verify?token=${encodeURIComponent(token)}`);
         const data = await res.json();
         if (!res.ok) {
           setVerificationError(data.error || 'Ошибка при подтверждении email.');

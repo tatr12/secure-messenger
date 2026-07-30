@@ -10,6 +10,7 @@ import {
   updateKeyEnvelope,
 } from './crypto';
 import { createSessionLifecycle } from './sessionLifecycle';
+import { buildWebSocketProtocols, buildWebSocketUrl } from './websocketUrl';
 
 // Укажи путь к звуковому файлу (из папки public или внешний URL)
 const NOTIFICATION_SOUND_URL = '/audio_2026-06-13_23-53-24.mp3';
@@ -630,9 +631,8 @@ export function useMessenger() {
       }
     }
 
-    const wsUrl =
-      `ws://127.0.0.1:8000/ws?token=${encodeURIComponent(token)}`;
-    const ws = new WebSocket(wsUrl);
+    const wsUrl = buildWebSocketUrl();
+    const ws = new WebSocket(wsUrl, buildWebSocketProtocols(token));
     wsRef.current = ws;
 
     const isCurrentSocket = () =>

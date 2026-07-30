@@ -14,6 +14,14 @@ export default defineConfig({
       "/history": "http://127.0.0.1:8000",
       "/search": "http://127.0.0.1:8000",
       "/health": "http://127.0.0.1:8000",
+      "/api/verify": {
+        target: "http://127.0.0.1:8000",
+        rewrite: (path) => path.replace(/^\/api/, ""),
+      },
+      "/ws": {
+        target: "ws://127.0.0.1:8000",
+        ws: true,
+      },
     }
   }
 })

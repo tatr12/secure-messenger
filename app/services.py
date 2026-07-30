@@ -3,6 +3,8 @@ from typing import Dict
 import json
 import logging
 import secrets
+from urllib.parse import urlencode
+
 import aiosmtplib
 import redis.asyncio as aioredis  # Подключаем асинхронный Redis напрямую 🚀
 from email.mime.text import MIMEText
@@ -21,8 +23,13 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
 
-    async def connect(self, username: str, websocket: WebSocket):
-        await websocket.accept()
+    async def connect(
+        self,
+        username: str,
+        websocket: WebSocket,
+        subprotocol: str | None = None,
+    ):
+        await websocket.accept(subprotocol=subprotocol)
         self.active_connections[username] = websocket
 
         print(
@@ -69,10 +76,14 @@ async def generate_verification_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+def build_verification_url(token: str) -> str:
+    base_url = settings.PUBLIC_BASE_URL.rstrip("/")
+    return f"{base_url}/verify?{urlencode({'token': token})}"
+
+
 async def send_verification_email(to_email: str, token: str):
     """Send verification email using aiosmtplib."""
-    # Меняем localhost на 127.0.0.2, раз твой фронтенд сидит там
-    verify_url = f"http://127.0.0.1:8000/verify?token={token}"
+    verify_url = build_verification_url(token)
 
     msg = MIMEMultipart()
     # Защита от отсутствия SMTP_FROM в pydantic-settings
