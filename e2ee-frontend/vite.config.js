@@ -9,6 +9,7 @@ export default defineConfig({
     proxy: {
       "/login": "http://127.0.0.1:8000",
       "/register": "http://127.0.0.1:8000",
+      "/me": "http://127.0.0.1:8000",
       "/user": "http://127.0.0.1:8000",
       "/history": "http://127.0.0.1:8000",
       "/search": "http://127.0.0.1:8000",

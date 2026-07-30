@@ -2,8 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import {
   arrayBufferToBase64,
   base64ToArrayBuffer,
+  createKeyEnvelopeV2,
   decryptMessagePacket,
   fetchKeyEnvelope,
+  importVerifiedPrivateKey,
+  unlockKeyEnvelope,
+  updateKeyEnvelope,
 } from './crypto';
 import { createSessionLifecycle } from './sessionLifecycle';
 
@@ -406,46 +410,29 @@ export function useMessenger() {
       }
       try {
         // Генерация криптографических ключей ECDH
-        const privateKey = await window.crypto.subtle.generateKey(
+        const generatedKeys = await window.crypto.subtle.generateKey(
           { name: "ECDH", namedCurve: "P-256" },
           true,
-          ["deriveBits"]
+          ["deriveBits", "deriveKey"]
         );
 
         // Экспорт публичного ключа в формат JWK
-        const publicKeyJwk = await window.crypto.subtle.exportKey("jwk", privateKey.publicKey);
+        const publicKeyJwk = await window.crypto.subtle.exportKey("jwk", generatedKeys.publicKey);
 
         // Экспорт частного ключа в PKCS8
-        const privateKeyPkcs8 = await window.crypto.subtle.exportKey("pkcs8", privateKey.privateKey);
+        const privateKeyPkcs8 = await window.crypto.subtle.exportKey("pkcs8", generatedKeys.privateKey);
+        let keyEnvelope;
+        let sessionPrivateKey;
 
-        // Генерация ключа шифрования из пароля
-        const encoder = new TextEncoder();
-        const baseKey = await window.crypto.subtle.importKey(
-          "raw",
-          encoder.encode(password),
-          "PBKDF2",
-          false,
-          ["deriveKey"]
-        );
-        const aesKey = await window.crypto.subtle.deriveKey(
-          { name: "PBKDF2", salt: encoder.encode(username + "_key_enc"), iterations: 10000, hash: "SHA-256" },
-          baseKey,
-          { name: "AES-GCM", length: 256 },
-          false,
-          ["encrypt", "decrypt"]
-        );
-
-        // Шифрование частного ключа AES-GCM
-        const iv = window.crypto.getRandomValues(new Uint8Array(12));
-        const encryptedPrivateKeyBuffer = await window.crypto.subtle.encrypt(
-          { name: "AES-GCM", iv },
-          aesKey,
-          privateKeyPkcs8
-        );
-
-        const publicKey = publicKeyJwk;
-        const encryptedPrivateKey = arrayBufferToBase64(encryptedPrivateKeyBuffer);
-        const privateKeyIv = arrayBufferToBase64(iv.buffer);
+        try {
+          keyEnvelope = await createKeyEnvelopeV2(privateKeyPkcs8, password);
+          sessionPrivateKey = await importVerifiedPrivateKey(
+            privateKeyPkcs8,
+            publicKeyJwk
+          );
+        } finally {
+          new Uint8Array(privateKeyPkcs8).fill(0);
+        }
 
         const resp = await fetch(`/register`, {
           method: "POST",
@@ -456,9 +443,8 @@ export function useMessenger() {
             email: email,
             password: password,
             bio: bio,
-            public_key: publicKey,
-            encrypted_private_key: encryptedPrivateKey,
-            private_key_iv: privateKeyIv,
+            public_key: publicKeyJwk,
+            key_envelope: keyEnvelope,
           }),
         });
 
@@ -469,7 +455,10 @@ export function useMessenger() {
         }
 
         // Сохранение ключей в ref для дальнейшего использования
-        myKeysRef.current = { publicKey: publicKeyJwk, privateKey };
+        myKeysRef.current = {
+          publicKey: publicKeyJwk,
+          privateKey: sessionPrivateKey,
+        };
 
         showNotification("Регистрация успешна! Входим...", "success");
 
@@ -545,71 +534,48 @@ export function useMessenger() {
         }
 
         const data = await resp.json();
+        const loggedUser = data.user;
         myKeysRef.current = { publicKey: null, privateKey: null };
 
         // Попытка восстановить privateKey из зашифрованных данных
         try {
           const userData = await fetchKeyEnvelope(data.access_token);
-
-          // Расшифровка приватного ключа
-          const encoder = new TextEncoder();
-          const baseKey = await window.crypto.subtle.importKey(
-            "raw",
-            encoder.encode(password),
-            "PBKDF2",
-            false,
-            ["deriveKey"]
-          );
-          const aesKey = await window.crypto.subtle.deriveKey(
-            { name: "PBKDF2", salt: encoder.encode(username + "_key_enc"), iterations: 10000, hash: "SHA-256" },
-            baseKey,
-            { name: "AES-GCM", length: 256 },
-            false,
-            ["decrypt"]
-          );
-
-          const decryptedPrivateKeyBuffer = await window.crypto.subtle.decrypt(
-            { name: "AES-GCM", iv: base64ToArrayBuffer(userData.private_key_iv) },
-            aesKey,
-            base64ToArrayBuffer(userData.encrypted_private_key)
-          );
-
-          const privateKey = await window.crypto.subtle.importKey(
-            "pkcs8",
-            decryptedPrivateKeyBuffer,
-            { name: "ECDH", namedCurve: "P-256" },
-            true,
-            ["deriveBits", "deriveKey"]
-          );
-
-          const restoredPrivateJwk =
-            await window.crypto.subtle.exportKey("jwk", privateKey);
-
-          const publicKeyMatches =
-            restoredPrivateJwk.x === userData.public_key?.x &&
-            restoredPrivateJwk.y === userData.public_key?.y;
-
-          console.log(
-            `[KEY CHECK] username=${username} publicKeyMatches=${publicKeyMatches}`
-          );
-
-          if (!publicKeyMatches) {
-            console.error(
-              "[KEY CHECK] Публичный и приватный ключи аккаунта не соответствуют друг другу"
-            );
-          }
+          const { privateKey, migratedEnvelope } = await unlockKeyEnvelope({
+            keyEnvelope: userData.key_envelope,
+            password,
+            username: loggedUser.username,
+            publicKey: userData.public_key,
+          });
 
           myKeysRef.current = {
             publicKey: userData.public_key,
             privateKey
           };
+
+          if (migratedEnvelope) {
+            try {
+              await updateKeyEnvelope(
+                data.access_token,
+                password,
+                migratedEnvelope
+              );
+            } catch (migrationError) {
+              console.warn(
+                '[Login] Защита старого ключа будет обновлена при следующем входе:',
+                migrationError
+              );
+            }
+          }
         } catch (keyErr) {
           console.error('[Login] Ошибка восстановления приватного ключа:', keyErr);
-          console.error('[Login] Error stack:', keyErr.stack);
-          // Continue anyway - user can still login and messages from before will be unavailable
+          myKeysRef.current = { publicKey: null, privateKey: null };
+          showNotification(
+            'Не удалось разблокировать ключи аккаунта. Вход остановлен.',
+            'error'
+          );
+          return;
         }
 
-        const loggedUser = data.user;
         const sessionGeneration = beginSession();
 
         setUserId(loggedUser.id);
