@@ -1,14 +1,16 @@
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db, redis_mgr
 from app.dependencies import get_current_user
+from app.key_envelopes import deserialize_key_envelope, is_key_envelope_v2
 from app.security import verify_password
 from app.jwt import create_access_token
 from app.schemas import (
-    KeyEnvelopeSchema,
+    KeyEnvelopeResponseSchema,
     PublicUserSchema,
     RegisterSchema,
+    UpdateKeyEnvelopeSchema,
     UpdateProfileSchema,
 )
 from app.repositories import UserRepository, MessageRepository
@@ -139,17 +141,48 @@ async def login(data: dict, db: AsyncSession = Depends(get_db)):
     }
 
 
-@router.get("/me/key-envelope", response_model=KeyEnvelopeSchema)
+@router.get(
+    "/me/key-envelope",
+    response_model=KeyEnvelopeResponseSchema,
+    response_model_exclude_none=True,
+)
 async def get_key_envelope(
     response: Response,
     current_user=Depends(get_current_user),
 ):
     response.headers["Cache-Control"] = "no-store"
-    return {
+    key_envelope = deserialize_key_envelope(
+        current_user.encrypted_private_key,
+        current_user.private_key_iv,
+    )
+    payload = {
         "public_key": current_user.public_key,
-        "encrypted_private_key": current_user.encrypted_private_key,
-        "private_key_iv": current_user.private_key_iv,
+        "key_envelope": key_envelope,
     }
+    if key_envelope.version == 1:
+        payload["encrypted_private_key"] = key_envelope.ciphertext
+        payload["private_key_iv"] = key_envelope.iv
+    return payload
+
+
+@router.put("/me/key-envelope")
+async def update_key_envelope(
+    data: UpdateKeyEnvelopeSchema,
+    response: Response,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "no-store"
+
+    if is_key_envelope_v2(current_user.encrypted_private_key):
+        return {"status": "already_current", "version": 2}
+
+    if not verify_password(data.password, current_user.password_hash):
+        raise HTTPException(status_code=403, detail="Invalid credentials")
+
+    repo = UserRepository(db)
+    await repo.update_key_envelope(current_user, data.key_envelope)
+    return {"status": "migrated", "version": 2}
 
 
 @router.get("/user/{username}", response_model=PublicUserSchema)

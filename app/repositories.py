@@ -1,7 +1,8 @@
 from sqlalchemy import select, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.key_envelopes import serialize_key_envelope_v2
 from app.models import UserTable, MessageTable
-from app.schemas import RegisterSchema
+from app.schemas import KeyEnvelopeV2Schema, RegisterSchema
 from app.security import hash_password
 
 
@@ -22,9 +23,26 @@ class UserRepository:
         return result.scalars().first()
 
     async def create_user(self, data: RegisterSchema) -> UserTable:
-        user_data = data.model_dump(exclude={"password"})
+        user_data = data.model_dump(
+            exclude={
+                "password",
+                "key_envelope",
+                "encrypted_private_key",
+                "private_key_iv",
+            }
+        )
+        if data.key_envelope:
+            encrypted_private_key, private_key_iv = serialize_key_envelope_v2(
+                data.key_envelope
+            )
+        else:
+            encrypted_private_key = data.encrypted_private_key
+            private_key_iv = data.private_key_iv
+
         new_user = UserTable(
             **user_data,
+            encrypted_private_key=encrypted_private_key,
+            private_key_iv=private_key_iv,
             password_hash=hash_password(data.password),
         )
         self.db.add(new_user)
@@ -38,6 +56,18 @@ class UserRepository:
             db_user.is_verified = True
             await self.db.commit()
         return db_user
+
+    async def update_key_envelope(
+        self,
+        user: UserTable,
+        envelope: KeyEnvelopeV2Schema,
+    ) -> UserTable:
+        encrypted_private_key, private_key_iv = serialize_key_envelope_v2(envelope)
+        user.encrypted_private_key = encrypted_private_key
+        user.private_key_iv = private_key_iv
+        await self.db.commit()
+        await self.db.refresh(user)
+        return user
 
     async def search_users(self, query: str, exclude: str) -> list[UserTable]:
         q_filter = f"%{query.lower()}%"
