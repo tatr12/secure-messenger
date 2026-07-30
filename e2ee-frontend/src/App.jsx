@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { useMessenger } from './useMessenger';
 import LoginPage from './pages/Login/LoginPage';
 import ChatPage from './pages/Chat/ChatPage';
@@ -7,24 +7,27 @@ export default function App() {
   const m = useMessenger();
   const messagesEndRef = useRef(null);
   const [verificationStatus, setVerificationStatus] = useState(null);
-  const [verificationError, setVerificationError] = useState(null);
+  const isVerificationRoute = window.location.pathname === '/verify';
+  const verificationToken = isVerificationRoute
+    ? new URLSearchParams(window.location.search).get('token')
+    : null;
+  const [verificationError, setVerificationError] = useState(() =>
+    isVerificationRoute && !verificationToken
+      ? 'Токен подтверждения не найден в URL.'
+      : null
+  );
   const [verificationLoading, setVerificationLoading] = useState(false);
 
   // Handle verify token from frontend URL /verify?token=...
   useEffect(() => {
-    if (window.location.pathname !== '/verify') return;
-
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('token');
-    if (!token) {
-      setVerificationError('Токен подтверждения не найден в URL.');
-      return;
-    }
+    if (!verificationToken) return;
 
     const verifyEmail = async () => {
       setVerificationLoading(true);
       try {
-        const res = await fetch(`/api/verify?token=${encodeURIComponent(token)}`);
+        const res = await fetch(
+          `/api/verify?token=${encodeURIComponent(verificationToken)}`
+        );
         const data = await res.json();
         if (!res.ok) {
           setVerificationError(data.error || 'Ошибка при подтверждении email.');
@@ -40,24 +43,35 @@ export default function App() {
     };
 
     verifyEmail();
-  }, []);
+  }, [verificationToken]);
+
+  const notifySuccessfulLogin = useEffectEvent((displayName) => {
+    m.showNotification(
+      `Терминал инициализирован. Добро пожаловать, ${displayName}`,
+      'success'
+    );
+  });
 
   // Вешаем уведомление на успешный вход/регистрацию из хука
   useEffect(() => {
     if (m.isLoggedIn) {
-      m.showNotification(`Терминал инициализирован. Добро пожаловать, ${m.displayName}`, 'success');
+      notifySuccessfulLogin(m.displayName);
     }
-  }, [m.isLoggedIn]);
+  }, [m.displayName, m.isLoggedIn]);
 
   // 1. Для автопрокрутки при появлении сообщений
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [m.allMessages]);
 
+  const sendActiveChatReadReceipt = useEffectEvent((username) => {
+    m.sendReadReceipt(username);
+  });
+
   // 2. Для отправки отчетов о прочтении
   useEffect(() => {
     if (m.isLoggedIn && m.activeChatUser && m.wsStatus === 'online') {
-      m.sendReadReceipt(m.activeChatUser);
+      sendActiveChatReadReceipt(m.activeChatUser);
     }
   }, [m.activeChatUser, m.allMessages.length, m.wsStatus, m.isLoggedIn]);
 

@@ -39,7 +39,7 @@ export function useMessenger() {
   const [wsStatus, setWsStatus] = useState('offline');
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [viewingPartnerProfile, setViewingPartnerProfile] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQueryState] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -66,6 +66,14 @@ export function useMessenger() {
 
   const userCacheRef = useRef({});
   const inFlightFetchesRef = useRef(new Set());
+  const nextToastIdRef = useRef(0);
+
+  const setSearchQuery = (nextQuery) => {
+    setSearchQueryState(nextQuery);
+    if (!nextQuery.trim()) {
+      setSearchResults([]);
+    }
+  };
 
   const closeCurrentWebSocket = (reason) => {
     const currentWebSocket = wsRef.current;
@@ -190,10 +198,7 @@ export function useMessenger() {
 
   // Живой поиск
   useEffect(() => {
-    if (!searchQuery.trim()) {
-      setSearchResults([]);
-      return;
-    }
+    if (!searchQuery.trim()) return;
 
     const sessionGeneration = sessionLifecycleRef.current.currentGeneration();
     const abortController = new AbortController();
@@ -225,7 +230,8 @@ export function useMessenger() {
 
   // Функция вызова красивого киберпанк-уведомления
   const showNotification = (msgText, type = 'success', title = null) => {
-    const id = Date.now();
+    nextToastIdRef.current += 1;
+    const id = nextToastIdRef.current;
     setToasts((prev) => [...prev, { id, message: msgText, type, title, fadeOut: false }]);
 
     // Автоматическое скрытие через 4 секунды, если пользователь не закрыл сам
