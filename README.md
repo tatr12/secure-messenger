@@ -43,3 +43,20 @@ docker compose \
 The application is then available through `https://<host>/`. Prometheus reads
 backend metrics only inside the Docker network; `make metrics` can inspect them
 without publishing `/metrics` through Nginx.
+
+## Sessions
+
+VØIDEN keeps the short-lived access token only in frontend memory. A rotating
+refresh token is stored in an `HttpOnly`, `SameSite=Strict` cookie; production
+cookies are also `Secure`. PostgreSQL stores only an HMAC hash of that token.
+
+Logging out or switching accounts revokes the current server session, closes
+its WebSocket and clears the in-memory E2EE key. The account menu can list real
+active sessions and revoke another device without storing multiple accounts or
+tokens in the browser.
+
+The Alembic chain now supports a clean database through the `auth_sessions`
+migration. Existing installations continue to create missing tables during
+application startup for compatibility; adopting Alembic state for an existing
+database should be planned separately and must not be done by blindly running
+or stamping migrations against production data.
