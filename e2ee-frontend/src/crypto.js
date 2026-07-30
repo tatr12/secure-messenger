@@ -5,6 +5,21 @@ export const base64ToArrayBuffer = (base64) => {
   return Uint8Array.from(atob(base64.replace(/[^A-Za-z0-9+/=]/g, "")), c => c.charCodeAt(0)).buffer;
 };
 
+export async function fetchKeyEnvelope(accessToken) {
+  if (!accessToken) throw new Error("Отсутствует токен сессии");
+
+  const response = await fetch('/me/key-envelope', {
+    cache: 'no-store',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!response.ok) {
+    throw new Error("Не удалось получить контейнер ключа");
+  }
+
+  return response.json();
+}
+
 export async function derivePasswordKey(password, username) {
   const encoder = new TextEncoder();
   const baseKey = await window.crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveKey"]);
@@ -25,7 +40,7 @@ export async function decryptMessagePacket(msg, myPrivateKey, currentUsername) {
     const decryptedRaw = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: base64ToArrayBuffer(msg.iv) }, aesKey, base64ToArrayBuffer(msg.ciphertext));
     
     return new TextDecoder().decode(decryptedRaw);
-  } catch (err) {
+  } catch {
     return "[Ошибка расшифровки пакета]";
   }
 }

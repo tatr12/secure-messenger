@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { arrayBufferToBase64, base64ToArrayBuffer, decryptMessagePacket } from './crypto';
+import {
+  arrayBufferToBase64,
+  base64ToArrayBuffer,
+  decryptMessagePacket,
+  fetchKeyEnvelope,
+} from './crypto';
 import { createSessionLifecycle } from './sessionLifecycle';
 
 // Укажи путь к звуковому файлу (из папки public или внешний URL)
@@ -544,63 +549,60 @@ export function useMessenger() {
 
         // Попытка восстановить privateKey из зашифрованных данных
         try {
-          const userRes = await fetch(`/user/${username}`);
-          if (userRes.ok) {
-            const userData = await userRes.json();
+          const userData = await fetchKeyEnvelope(data.access_token);
 
-            // Расшифровка приватного ключа
-            const encoder = new TextEncoder();
-            const baseKey = await window.crypto.subtle.importKey(
-              "raw",
-              encoder.encode(password),
-              "PBKDF2",
-              false,
-              ["deriveKey"]
+          // Расшифровка приватного ключа
+          const encoder = new TextEncoder();
+          const baseKey = await window.crypto.subtle.importKey(
+            "raw",
+            encoder.encode(password),
+            "PBKDF2",
+            false,
+            ["deriveKey"]
+          );
+          const aesKey = await window.crypto.subtle.deriveKey(
+            { name: "PBKDF2", salt: encoder.encode(username + "_key_enc"), iterations: 10000, hash: "SHA-256" },
+            baseKey,
+            { name: "AES-GCM", length: 256 },
+            false,
+            ["decrypt"]
+          );
+
+          const decryptedPrivateKeyBuffer = await window.crypto.subtle.decrypt(
+            { name: "AES-GCM", iv: base64ToArrayBuffer(userData.private_key_iv) },
+            aesKey,
+            base64ToArrayBuffer(userData.encrypted_private_key)
+          );
+
+          const privateKey = await window.crypto.subtle.importKey(
+            "pkcs8",
+            decryptedPrivateKeyBuffer,
+            { name: "ECDH", namedCurve: "P-256" },
+            true,
+            ["deriveBits", "deriveKey"]
+          );
+
+          const restoredPrivateJwk =
+            await window.crypto.subtle.exportKey("jwk", privateKey);
+
+          const publicKeyMatches =
+            restoredPrivateJwk.x === userData.public_key?.x &&
+            restoredPrivateJwk.y === userData.public_key?.y;
+
+          console.log(
+            `[KEY CHECK] username=${username} publicKeyMatches=${publicKeyMatches}`
+          );
+
+          if (!publicKeyMatches) {
+            console.error(
+              "[KEY CHECK] Публичный и приватный ключи аккаунта не соответствуют друг другу"
             );
-            const aesKey = await window.crypto.subtle.deriveKey(
-              { name: "PBKDF2", salt: encoder.encode(username + "_key_enc"), iterations: 10000, hash: "SHA-256" },
-              baseKey,
-              { name: "AES-GCM", length: 256 },
-              false,
-              ["decrypt"]
-            );
-
-            const decryptedPrivateKeyBuffer = await window.crypto.subtle.decrypt(
-              { name: "AES-GCM", iv: base64ToArrayBuffer(userData.private_key_iv) },
-              aesKey,
-              base64ToArrayBuffer(userData.encrypted_private_key)
-            );
-
-            const privateKey = await window.crypto.subtle.importKey(
-              "pkcs8",
-              decryptedPrivateKeyBuffer,
-              { name: "ECDH", namedCurve: "P-256" },
-              true,
-              ["deriveBits", "deriveKey"]
-            );
-
-            const restoredPrivateJwk =
-              await window.crypto.subtle.exportKey("jwk", privateKey);
-
-            const publicKeyMatches =
-              restoredPrivateJwk.x === userData.public_key?.x &&
-              restoredPrivateJwk.y === userData.public_key?.y;
-
-            console.log(
-              `[KEY CHECK] username=${username} publicKeyMatches=${publicKeyMatches}`
-            );
-
-            if (!publicKeyMatches) {
-              console.error(
-                "[KEY CHECK] Публичный и приватный ключи аккаунта не соответствуют друг другу"
-              );
-            }
-
-            myKeysRef.current = {
-              publicKey: userData.public_key,
-              privateKey
-            };
           }
+
+          myKeysRef.current = {
+            publicKey: userData.public_key,
+            privateKey
+          };
         } catch (keyErr) {
           console.error('[Login] Ошибка восстановления приватного ключа:', keyErr);
           console.error('[Login] Error stack:', keyErr.stack);
