@@ -3,6 +3,14 @@ from urllib.parse import urlparse
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def as_sync_database_url(database_url: str) -> str:
+    return database_url.replace(
+        "postgresql+asyncpg://",
+        "postgresql+psycopg://",
+        1,
+    )
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",

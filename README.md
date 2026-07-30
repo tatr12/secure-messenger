@@ -60,3 +60,7 @@ migration. Existing installations continue to create missing tables during
 application startup for compatibility; adopting Alembic state for an existing
 database should be planned separately and must not be done by blindly running
 or stamping migrations against production data.
+
+Alembic uses the database host from `DATABASE_URL`, so migrations can run inside
+the backend container without rewriting the Compose service name to `localhost`.
+For an intentional host-side migration, set `ALEMBIC_DATABASE_URL` explicitly.

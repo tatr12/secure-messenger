@@ -231,9 +231,7 @@ def test_login_replaces_the_browser_cookie_session(monkeypatch):
     assert changes["revoked_hash"] == hash_refresh_token("old-refresh")
     assert changes["published"] == "old-session"
     assert changes["created"]["user_id"] == user.id
-    assert changes["created"]["refresh_token_hash"] == hash_refresh_token(
-        "new-refresh"
-    )
+    assert changes["created"]["refresh_token_hash"] == hash_refresh_token("new-refresh")
     assert decode_access_token(payload["access_token"])["sid"] == "new-session"
     assert payload["expires_in"] > 0
     assert "refresh_token" not in payload

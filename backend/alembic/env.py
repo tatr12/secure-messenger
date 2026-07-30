@@ -1,10 +1,11 @@
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
-from app.config import settings
+from app.config import as_sync_database_url, settings
 from app.database import Base
 from app import models  # noqa: F401
 
@@ -12,10 +13,9 @@ from app import models  # noqa: F401
 # access to the values within the .ini file in use.
 config = context.config
 
-database_url = settings.DATABASE_URL.replace(
-    "postgresql+asyncpg://",
-    "postgresql+psycopg://",
-).replace("@postgres:", "@localhost:")
+database_url = as_sync_database_url(
+    os.getenv("ALEMBIC_DATABASE_URL", settings.DATABASE_URL)
+)
 
 config.set_main_option("sqlalchemy.url", database_url)
 

@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from app.config import settings
+from app.config import as_sync_database_url, settings
 from app.routers.websocket import get_websocket_credentials
 from app.services import build_verification_url
 
@@ -47,4 +47,13 @@ def test_transport_configuration_uses_explicit_origins_and_public_url(monkeypatc
     ]
     assert build_verification_url("token with spaces") == (
         "https://voiden.example/verify?token=token+with+spaces"
+    )
+
+
+def test_alembic_sync_url_preserves_the_configured_database_host():
+    assert (
+        as_sync_database_url(
+            "postgresql+asyncpg://user:password@postgres:5432/messenger"
+        )
+        == "postgresql+psycopg://user:password@postgres:5432/messenger"
     )
