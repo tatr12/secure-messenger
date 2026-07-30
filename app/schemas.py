@@ -15,3 +15,19 @@ class RegisterSchema(BaseModel):
 class UpdateProfileSchema(BaseModel):
     display_name: str
     bio: str = Field(..., max_length=255)
+
+
+class PublicUserSchema(BaseModel):
+    id: int
+    username: str
+    display_name: str
+    bio: str
+    avatar_url: str | None
+    public_key: dict
+    is_online: bool
+
+
+class KeyEnvelopeSchema(BaseModel):
+    public_key: dict
+    encrypted_private_key: str
+    private_key_iv: str

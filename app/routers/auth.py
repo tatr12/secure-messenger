@@ -1,11 +1,16 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db, redis_mgr
 from app.dependencies import get_current_user
 from app.security import verify_password
 from app.jwt import create_access_token
-from app.schemas import RegisterSchema, UpdateProfileSchema
+from app.schemas import (
+    KeyEnvelopeSchema,
+    PublicUserSchema,
+    RegisterSchema,
+    UpdateProfileSchema,
+)
 from app.repositories import UserRepository, MessageRepository
 from app.services import (
     generate_verification_token,
@@ -134,7 +139,20 @@ async def login(data: dict, db: AsyncSession = Depends(get_db)):
     }
 
 
-@router.get("/user/{username}")
+@router.get("/me/key-envelope", response_model=KeyEnvelopeSchema)
+async def get_key_envelope(
+    response: Response,
+    current_user=Depends(get_current_user),
+):
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "public_key": current_user.public_key,
+        "encrypted_private_key": current_user.encrypted_private_key,
+        "private_key_iv": current_user.private_key_iv,
+    }
+
+
+@router.get("/user/{username}", response_model=PublicUserSchema)
 async def get_user(username: str, db: AsyncSession = Depends(get_db)):
     repo = UserRepository(db)
     db_user = await repo.get_by_username(username)
@@ -149,8 +167,6 @@ async def get_user(username: str, db: AsyncSession = Depends(get_db)):
         "bio": db_user.bio,
         "avatar_url": db_user.avatar_url,
         "public_key": db_user.public_key,
-        "encrypted_private_key": db_user.encrypted_private_key,
-        "private_key_iv": db_user.private_key_iv,
         "is_online": is_online,
     }
 
