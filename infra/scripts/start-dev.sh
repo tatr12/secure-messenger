@@ -31,7 +31,7 @@ docker compose \
 echo "4) Checking backend health..."
 sleep 3
 
-if curl -fsS http://localhost/health >/dev/null; then
+if curl -kfsS https://localhost/health >/dev/null; then
   echo "✅ Backend health: OK"
 else
   echo "❌ Backend health: FAILED"
@@ -40,7 +40,8 @@ fi
 
 echo ""
 echo "✅ Ready!"
-echo "Backend:    http://localhost/health"
-echo "Metrics:    http://localhost/metrics"
+echo "Application: https://localhost/"
+echo "Backend:     https://localhost/health"
+echo "Metrics:     available through 'make metrics'"
 echo "Grafana:    http://localhost:3000"
 echo "Prometheus: http://localhost:9090"

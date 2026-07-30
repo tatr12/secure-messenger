@@ -44,10 +44,10 @@ nginx-logs:
 # ==========================
 
 health:
-	curl http://localhost/health
+	curl -k https://localhost/health
 
 metrics:
-	curl http://localhost/metrics | head -30
+	$(COMPOSE) exec -T backend python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8000/metrics').read().decode())" | head -30
 
 grafana:
 	open http://localhost:3000

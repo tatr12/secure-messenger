@@ -97,8 +97,17 @@ else
   fail "Redis"
 fi
 
-check_http "Backend health" "http://localhost/health"
-check_http "Nginx" "http://localhost/docs"
+if curl -kfsS --max-time 5 "https://localhost/health" >/dev/null 2>&1; then
+  ok "Backend health"
+else
+  fail "Backend health"
+fi
+
+if curl -kfsS --max-time 5 "https://localhost/" >/dev/null 2>&1; then
+  ok "Nginx frontend"
+else
+  fail "Nginx frontend"
+fi
 check_http "Prometheus" "http://localhost:9090/-/healthy"
 check_http "Grafana" "http://localhost:3000/api/health"
 check_http "Mailpit UI" "http://localhost:8025"

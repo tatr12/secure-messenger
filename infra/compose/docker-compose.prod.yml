@@ -1,14 +1,23 @@
 services:
   nginx:
-    image: nginx:1.27-alpine
+    build:
+      context: ../..
+      dockerfile: infra/nginx/Dockerfile
     restart: unless-stopped
     depends_on:
       backend:
         condition: service_healthy
     ports:
       - "80:80"
+      - "443:443"
     volumes:
-      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ${TLS_CERT_PATH:?Set TLS_CERT_PATH in .env}:/etc/nginx/tls/fullchain.pem:ro
+      - ${TLS_KEY_PATH:?Set TLS_KEY_PATH in .env}:/etc/nginx/tls/privkey.pem:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "--no-check-certificate", "https://127.0.0.1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - messenger_network
 
