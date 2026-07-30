@@ -1,501 +1,199 @@
 .chat-page {
+  display: flex;
   width: 100%;
   height: 100vh;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
-  min-height: 100vh;
-  display: flex;
-
   background:
     radial-gradient(
       circle at top left,
       rgba(255, 255, 255, 0.72),
       transparent 32%
     ),
-    linear-gradient(
-      180deg,
-      var(--color-bg-soft) 0%,
-      var(--color-bg) 100%
-    );
-
+    linear-gradient(180deg, var(--color-bg-soft) 0%, var(--color-bg) 100%);
   color: var(--color-text);
 }
 
-.chat-page__content {
-  flex: 1;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 8px;
-}
-
-.chat-page__content h1 {
-  margin: 0;
-  font-size: 40px;
-  letter-spacing: 0.12em;
-}
-
-.chat-page__content p {
-  margin: 0;
-  color: #85858b;
-}
-
-.account-menu {
+.account-menu__backdrop {
   position: fixed;
-  bottom: 80px;
-  left: 90px;
-  width: 240px;
-  background: #18181f;
-  border-radius: 18px;
-  padding: 10px;
-  box-shadow: 0 20px 50px rgba(0,0,0,.25);
-  z-index: 20;
+  inset: 0;
+  z-index: 90;
+  border: 0;
+  background: transparent;
+  cursor: default;
 }
 
-.account-menu button {
-  width:100%;
-  background:none;
-  border:0;
-  padding:14px;
-  text-align:left;
-  color:#fff;
-  border-radius:12px;
-  cursor:pointer;
-  font-size:15px;
-}
-
-.account-menu button:hover {
-  background:#252530;
-}
-
-
-.logout-overlay {
-  position:fixed;
-  inset:0;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  background:rgba(0,0,0,.18);
-  backdrop-filter:blur(8px);
-  z-index:30;
-}
-
-
-.logout-modal {
-  width:360px;
-  background:#fff;
-  border-radius:24px;
-  padding:30px;
-  text-align:center;
-  box-shadow:0 30px 80px rgba(0,0,0,.18);
-}
-
-
-.logout-modal h2 {
-  margin-bottom:10px;
-}
-
-
-.logout-modal p {
-  color:#777;
-}
-
-
-.logout-actions {
-  display:flex;
-  gap:12px;
-  margin-top:25px;
-}
-
-
-.logout-actions button {
-  flex:1;
-  padding:13px;
-  border-radius:14px;
-  border:0;
-  cursor:pointer;
-  background:#f1f1f5;
-}
-
-
-.logout-actions button:last-child {
-  background:#18181f;
-  color:white;
-}
 .account-menu {
   position: absolute;
-  left: 70px;
   bottom: 80px;
-
-  width: 260px;
-
-  background: #111214;
-  border: 1px solid #26272b;
-  border-radius: 16px;
-
-  padding: 14px;
-
-  box-shadow:
-    0 20px 60px rgba(0,0,0,.35);
-
-  animation: accountShow .18s ease;
+  left: 70px;
   z-index: 100;
+  width: 276px;
+  padding: 14px;
+  border: 1px solid #26272b;
+  border-radius: 18px;
+  background: rgba(17, 18, 20, 0.97);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  animation: account-menu-show var(--transition-base);
+  backdrop-filter: blur(24px);
 }
-
-
-@keyframes accountShow {
-
-  from {
-    opacity:0;
-    transform:translateY(10px);
-  }
-
-  to {
-    opacity:1;
-    transform:none;
-  }
-
-}
-
-
 
 .account-header {
-
-  display:flex;
-  gap:12px;
-  align-items:center;
-
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 2px 4px;
 }
-
-
 
 .account-avatar {
-
-  width:44px;
-  height:44px;
-
-  border-radius:50%;
-
-  background:#202126;
-
-  display:flex;
-  align-items:center;
-  justify-content:center;
-
-  font-size:20px;
-  font-weight:600;
-
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #202126;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 600;
+  text-transform: uppercase;
 }
-
-
 
 .account-name {
-
-  color:#fff;
-  font-weight:600;
-  font-size:15px;
-
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
 }
-
-
 
 .account-login {
-
-  color:#888;
-  font-size:13px;
-
+  color: #88898f;
+  font-size: 13px;
 }
-
-
 
 .account-status {
-
-  color:#8d8d8d;
-  font-size:12px;
-
-  margin-top:3px;
-
+  margin-top: 3px;
+  color: #6fd88a;
+  font-size: 11px;
 }
-
-
 
 .account-divider {
-
-  height:1px;
-  background:#25262b;
-
-  margin:14px 0;
-
+  height: 1px;
+  margin: 13px 0;
+  background: #25262b;
 }
-
-
 
 .account-action {
-
-  width:100%;
-
-  border:0;
-  background:transparent;
-
-  color:#ddd;
-
-  text-align:left;
-
-  padding:11px 12px;
-
-  border-radius:10px;
-
-  cursor:pointer;
-
-  font-size:14px;
-
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #dddde1;
+  cursor: pointer;
+  font-size: 14px;
+  text-align: left;
 }
 
-
-
 .account-action:hover {
+  background: #202126;
+}
 
-  background:#202126;
-
+.account-action--danger {
+  color: #ff8a83;
 }
 
 .logout-overlay {
   position: fixed;
   inset: 0;
+  z-index: 2000;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0,0,0,0.28);
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(14px);
-  z-index: 2000;
-  animation: fadeIn .2s ease;
+  animation: overlay-fade-in var(--transition-base);
 }
-
 
 .logout-dialog {
-  width: 360px;
+  width: min(360px, 100%);
   padding: 32px;
   border-radius: 28px;
-  background: rgba(255,255,255,0.86);
-  backdrop-filter: blur(30px);
+  background: rgba(255, 255, 255, 0.9);
   box-shadow:
-    0 30px 80px rgba(0,0,0,0.22),
-    inset 0 1px rgba(255,255,255,0.7);
+    0 30px 80px rgba(0, 0, 0, 0.22),
+    inset 0 1px rgba(255, 255, 255, 0.7);
   text-align: center;
-  animation: scaleIn .2s ease;
+  animation: dialog-scale-in var(--transition-base);
+  backdrop-filter: blur(30px);
 }
-
 
 .logout-dialog h3 {
-  margin:0 0 14px;
-  font-size:26px;
-  font-weight:700;
-  color:#1d1d1f;
+  margin: 0 0 14px;
+  color: #1d1d1f;
+  font-size: 26px;
+  font-weight: 700;
 }
-
 
 .logout-dialog p {
-  margin:0 0 28px;
-  color:#6e6e73;
-  font-size:16px;
+  margin: 0 0 28px;
+  color: #6e6e73;
+  font-size: 16px;
 }
-
 
 .logout-dialog button {
-  width:100%;
-  padding:14px;
-  margin-top:10px;
-  border-radius:16px;
-  border:none;
-  font-size:16px;
-  font-weight:600;
-  cursor:pointer;
-  transition:.2s ease;
+  width: 100%;
+  margin-top: 10px;
+  padding: 14px;
+  border: 0;
+  border-radius: 16px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 600;
+  transition:
+    background-color var(--transition-base),
+    transform var(--transition-base);
 }
-
 
 .logout-dialog button:first-of-type {
-  background:#111;
-  color:white;
+  background: #111;
+  color: #fff;
 }
-
 
 .logout-dialog button:first-of-type:hover {
-  background:#2c2c2e;
-  transform:translateY(-1px);
+  background: #2c2c2e;
+  transform: translateY(-1px);
 }
-
 
 .logout-dialog button:last-of-type {
-  background:rgba(0,0,0,0.06);
-  color:#1d1d1f;
+  background: rgba(0, 0, 0, 0.06);
+  color: #1d1d1f;
 }
-
 
 .logout-dialog button:last-of-type:hover {
-  background:rgba(0,0,0,0.1);
+  background: rgba(0, 0, 0, 0.1);
 }
 
-
-.sessions-dialog {
-  width: min(560px, calc(100vw - 32px));
-  max-height: min(680px, calc(100dvh - 48px));
-  overflow: hidden;
-  padding: 24px;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 24px;
-  background: rgba(17,18,20,0.94);
-  color: #fff;
-  box-shadow: 0 30px 90px rgba(0,0,0,0.42);
-  backdrop-filter: blur(30px);
-  animation: scaleIn .2s ease;
-}
-
-
-.sessions-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 20px;
-}
-
-
-.sessions-heading h3 {
-  margin: 0 0 6px;
-  font-size: 24px;
-}
-
-
-.sessions-heading p {
-  margin: 0;
-  color: #8d8d93;
-  font-size: 14px;
-}
-
-
-.sessions-close {
-  width: 34px;
-  height: 34px;
-  flex: 0 0 auto;
-  border: 0;
-  border-radius: 50%;
-  background: #25262b;
-  color: #d7d7dc;
-  cursor: pointer;
-  font-size: 22px;
-}
-
-
-.sessions-list {
-  max-height: 500px;
-  overflow-y: auto;
-  display: grid;
-  gap: 10px;
-}
-
-
-.session-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  padding: 14px;
-  border: 1px solid #292a30;
-  border-radius: 16px;
-  background: #18191d;
-}
-
-
-.session-device-icon {
-  width: 38px;
-  height: 38px;
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  border-radius: 12px;
-  background: #24262c;
-  color: #9ca8ff;
-}
-
-
-.session-details {
-  min-width: 0;
-  flex: 1;
-}
-
-
-.session-name {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  color: #f3f3f5;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-
-.session-current {
-  padding: 3px 7px;
-  border-radius: 999px;
-  background: rgba(91,111,255,0.18);
-  color: #aeb8ff;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-
-.session-time {
-  margin-top: 5px;
-  color: #85858b;
-  font-size: 12px;
-}
-
-
-.session-revoke {
-  flex: 0 0 auto;
-  border: 0;
-  border-radius: 10px;
-  padding: 9px 11px;
-  background: rgba(255,69,58,0.12);
-  color: #ff827a;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-
-.session-revoke:hover {
-  background: rgba(255,69,58,0.2);
-}
-
-
-.sessions-empty {
-  padding: 30px 16px;
-  color: #85858b;
-  text-align: center;
-}
-
-
-@keyframes fadeIn {
+@keyframes account-menu-show {
   from {
-    opacity:0;
-  }
-  to {
-    opacity:1;
+    opacity: 0;
+    transform: translateY(10px);
   }
 }
 
-
-@keyframes scaleIn {
+@keyframes overlay-fade-in {
   from {
-    transform:scale(.94);
-    opacity:0;
+    opacity: 0;
   }
-  to {
-    transform:scale(1);
-    opacity:1;
+}
+
+@keyframes dialog-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
   }
 }

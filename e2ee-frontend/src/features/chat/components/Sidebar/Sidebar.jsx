@@ -20,7 +20,7 @@ export default function Sidebar({
   activeSection = 'chats',
   onSectionChange,
   onOpenSettings,
-  onLogout,
+  onOpenAccount,
 }) {
   return (
     <aside className="sidebar">
@@ -62,7 +62,7 @@ export default function Sidebar({
           type="button"
           title="Профиль"
           aria-label="Профиль"
-          onClick={onLogout}
+          onClick={onOpenAccount}
         >
           <User size={18} strokeWidth={1.8} />
         </button>
