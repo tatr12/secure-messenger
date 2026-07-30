@@ -73,3 +73,31 @@ test('ending a session cancels its pending token refresh', () => {
   assert.equal(timers.callbacks.size, 0);
   assert.equal(refreshCount, 0);
 });
+
+test('starting a new session invalidates stale reconnect and refresh callbacks', () => {
+  const timers = createFakeTimers();
+  const lifecycle = createSessionLifecycle(timers);
+  const firstGeneration = lifecycle.begin();
+  let reconnectCount = 0;
+  let refreshCount = 0;
+
+  lifecycle.scheduleReconnect(firstGeneration, () => {
+    reconnectCount += 1;
+  }, 4000);
+  const staleReconnect = [...timers.callbacks.values()][0];
+
+  lifecycle.scheduleRefresh(firstGeneration, () => {
+    refreshCount += 1;
+  }, 840_000);
+  const staleRefresh = [...timers.callbacks.values()][1];
+
+  const secondGeneration = lifecycle.begin();
+  staleReconnect();
+  staleRefresh();
+
+  assert.equal(lifecycle.isActive(firstGeneration), false);
+  assert.equal(lifecycle.isActive(secondGeneration), true);
+  assert.equal(timers.callbacks.size, 0);
+  assert.equal(reconnectCount, 0);
+  assert.equal(refreshCount, 0);
+});

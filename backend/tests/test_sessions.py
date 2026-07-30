@@ -293,6 +293,81 @@ def test_missing_refresh_cookie_is_rejected_and_cleared():
     assert "Max-Age=0" in response.headers["set-cookie"]
 
 
+def test_session_listing_marks_only_the_calling_device_as_current(monkeypatch):
+    now = datetime.now(UTC)
+    sessions = [
+        SimpleNamespace(
+            id="session-1",
+            user_agent="First device",
+            ip_address="127.0.0.1",
+            created_at=now,
+            last_used_at=now,
+            expires_at=now + timedelta(days=1),
+        ),
+        SimpleNamespace(
+            id="session-2",
+            user_agent="Second device",
+            ip_address="127.0.0.2",
+            created_at=now,
+            last_used_at=now,
+            expires_at=now + timedelta(days=1),
+        ),
+    ]
+
+    class FakeSessionRepository:
+        def __init__(self, _db):
+            pass
+
+        async def list_active(self, user_id):
+            assert user_id == 7
+            return sessions
+
+    monkeypatch.setattr(auth, "SessionRepository", FakeSessionRepository)
+    current_auth = SimpleNamespace(user=make_user(), session=sessions[0])
+
+    payload = asyncio.run(auth.list_sessions(current_auth=current_auth, db=object()))
+
+    assert [item["id"] for item in payload] == ["session-1", "session-2"]
+    assert [item["current"] for item in payload] == [True, False]
+
+
+def test_revoking_another_device_preserves_the_current_refresh_cookie(monkeypatch):
+    published = []
+
+    class FakeSessionRepository:
+        def __init__(self, _db):
+            pass
+
+        async def revoke_by_id_for_user(self, session_id, user_id):
+            assert session_id == "session-2"
+            assert user_id == 7
+            return session_id
+
+    async def publish(session_id):
+        published.append(session_id)
+
+    monkeypatch.setattr(auth, "SessionRepository", FakeSessionRepository)
+    monkeypatch.setattr(auth, "_publish_session_revocation", publish)
+    current_auth = SimpleNamespace(
+        user=make_user(),
+        session=SimpleNamespace(id="session-1"),
+    )
+    response = Response()
+
+    asyncio.run(
+        auth.revoke_session(
+            "session-2",
+            response,
+            current_auth=current_auth,
+            db=object(),
+        )
+    )
+
+    assert response.status_code == 204
+    assert "set-cookie" not in response.headers
+    assert published == ["session-2"]
+
+
 class FakeWebSocket:
     def __init__(self):
         self.accepted_subprotocol = None
