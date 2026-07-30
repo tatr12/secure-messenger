@@ -39,6 +39,8 @@ def make_user():
         username="alice",
         display_name="Alice",
         email="alice@example.com",
+        bio="Secure by default",
+        avatar_url=None,
         is_verified=True,
         is_active=True,
         password_hash="password-hash",
@@ -234,6 +236,8 @@ def test_login_replaces_the_browser_cookie_session(monkeypatch):
     assert changes["created"]["refresh_token_hash"] == hash_refresh_token("new-refresh")
     assert decode_access_token(payload["access_token"])["sid"] == "new-session"
     assert payload["expires_in"] > 0
+    assert payload["user"]["bio"] == user.bio
+    assert payload["user"]["avatar_url"] is None
     assert "refresh_token" not in payload
     assert "voiden_refresh=new-refresh" in response.headers["set-cookie"]
 

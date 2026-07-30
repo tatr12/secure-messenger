@@ -64,6 +64,8 @@ def _token_response(user, session_id: str) -> dict:
             "username": user.username,
             "display_name": user.display_name,
             "email": user.email,
+            "bio": user.bio,
+            "avatar_url": user.avatar_url,
             "is_verified": user.is_verified,
         },
     }

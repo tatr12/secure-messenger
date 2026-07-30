@@ -15,6 +15,7 @@ import {
   refreshSession,
   revokeSession,
 } from './sessionApi';
+import { updateProfile } from './profileApi';
 import { buildWebSocketProtocols, buildWebSocketUrl } from './websocketUrl';
 
 // Укажи путь к звуковому файлу (из папки public или внешний URL)
@@ -332,31 +333,48 @@ export function useMessenger() {
   }
 
   async function changeProfileData(newName, newBio) {
-    if (!newName.trim()) return;
-    const sessionGeneration = sessionLifecycleRef.current.currentGeneration();
-    if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
+    const cleanName = newName.trim();
+    const cleanBio = newBio.trim();
+    if (!cleanName) return false;
+
+    const lifecycle = sessionLifecycleRef.current;
+    const sessionGeneration = lifecycle.currentGeneration();
+    if (!lifecycle.isActive(sessionGeneration)) return false;
 
     try {
-      const res = await fetch('/user/update', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${sessionTokenRef.current}`,
-        },
-        body: JSON.stringify({ display_name: newName, bio: newBio })
-      });
-      if (
-        res.ok &&
-        sessionLifecycleRef.current.isActive(sessionGeneration)
-      ) {
-        const data = await res.json();
-        if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
+      const requestProfileUpdate = () => updateProfile(
+        sessionTokenRef.current,
+        { displayName: cleanName, bio: cleanBio },
+      );
+      let data;
 
-        setDisplayName(data.display_name);
-        setBio(data.bio);
-        setUserCache(prev => ({ ...prev, [username]: data.display_name }));
+      try {
+        data = await requestProfileUpdate();
+      } catch (error) {
+        if (error.status !== 401 || !lifecycle.isActive(sessionGeneration)) {
+          throw error;
+        }
+        await refreshAccessToken(username, sessionGeneration);
+        if (!lifecycle.isActive(sessionGeneration)) return false;
+        data = await requestProfileUpdate();
       }
-    } catch (e) { console.error(e); }
+      if (!lifecycle.isActive(sessionGeneration)) return false;
+
+      setDisplayName(data.display_name);
+      setBio(data.bio);
+      setUserCache((current) => ({
+        ...current,
+        [username]: data.display_name,
+      }));
+      showNotification('Профиль обновлён.', 'success');
+      return true;
+    } catch (error) {
+      if (lifecycle.isActive(sessionGeneration)) {
+        console.error('[PROFILE] Не удалось обновить профиль', error);
+        showNotification('Не удалось сохранить профиль.', 'error');
+      }
+      return false;
+    }
   }
 
   async function loadSessions() {
@@ -632,6 +650,8 @@ export function useMessenger() {
           sessionTokenRef.current = loginData.access_token;
           setUsername(loggedUser.username);
           setDisplayName(loggedUser.display_name || loggedUser.username);
+          setEmail(loggedUser.email || '');
+          setBio(loggedUser.bio || DEFAULT_BIO);
           setIsLoggedIn(true);
 
           scheduleSessionRefresh(
@@ -660,8 +680,8 @@ export function useMessenger() {
           myKeysRef.current = { publicKey: null, privateKey: null };
           setUsername('');
           setDisplayName('');
+          setEmail('');
         }
-        setEmail('');
         setPassword('');
         setConfirmPassword('');
       } catch (err) {
@@ -744,6 +764,8 @@ export function useMessenger() {
         sessionTokenRef.current = data.access_token;
         setUsername(loggedUser.username);
         setDisplayName(loggedUser.display_name || loggedUser.username);
+        setEmail(loggedUser.email || '');
+        setBio(loggedUser.bio || DEFAULT_BIO);
         setIsLoggedIn(true);
 
         scheduleSessionRefresh(

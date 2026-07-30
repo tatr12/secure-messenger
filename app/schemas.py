@@ -92,8 +92,16 @@ class RegisterSchema(BaseModel):
 
 
 class UpdateProfileSchema(BaseModel):
-    display_name: str
+    display_name: str = Field(min_length=1, max_length=80)
     bio: str = Field(..., max_length=255)
+
+    @field_validator("display_name")
+    @classmethod
+    def validate_display_name(cls, value: str) -> str:
+        clean_value = value.strip()
+        if not clean_value:
+            raise ValueError("display_name must not be blank")
+        return clean_value
 
 
 class PublicUserSchema(BaseModel):
