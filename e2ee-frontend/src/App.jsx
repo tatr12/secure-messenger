@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMessenger } from './useMessenger';
 import LoginPage from './pages/Login/LoginPage';
 import ChatPage from './pages/Chat/ChatPage';
@@ -6,8 +6,6 @@ import ChatPage from './pages/Chat/ChatPage';
 export default function App() {
   const m = useMessenger();
   const messagesEndRef = useRef(null);
-  const [newNickInput, setNewNickInput] = useState('');
-  const [newBioInput, setNewBioInput] = useState('');
   const [verificationStatus, setVerificationStatus] = useState(null);
   const [verificationError, setVerificationError] = useState(null);
   const [verificationLoading, setVerificationLoading] = useState(false);
@@ -34,7 +32,7 @@ export default function App() {
         }
         setVerificationStatus(data.message || 'Email успешно подтвержден.');
         window.history.replaceState(null, '', '/');
-      } catch (err) {
+      } catch {
         setVerificationError('Не удалось связаться с сервером при подтверждении.');
       } finally {
         setVerificationLoading(false);
@@ -63,87 +61,11 @@ export default function App() {
     }
   }, [m.activeChatUser, m.allMessages.length, m.wsStatus, m.isLoggedIn]);
 
-  useEffect(() => {
-    if (m.isProfileOpen) {
-      setNewNickInput(m.displayName);
-      setNewBioInput(m.bio);
-    }
-  }, [m.isProfileOpen]);
-
-  const styles = {
-    container: {
-      display: 'flex',
-      minHeight: '100vh',
-      width: '100vw',
-      background:
-        'radial-gradient(circle at top left, rgba(0,122,255,0.10), transparent 32%), radial-gradient(circle at bottom right, rgba(175,82,222,0.08), transparent 30%), #f5f5f7',
-      color: '#1d1d1f',
-      fontFamily:
-        '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif',
-    },
-
-    authContainer: {
-      margin: 'auto',
-      width: 420,
-      background: 'rgba(255,255,255,0.82)',
-      border: '1px solid rgba(255,255,255,0.9)',
-      boxShadow: '0 24px 70px rgba(0,0,0,0.12)',
-      borderRadius: 24,
-      overflow: 'hidden',
-      backdropFilter: 'blur(24px)',
-    },
-
-    authTabs: {
-      display: 'flex',
-      borderBottom: '1px solid rgba(0,0,0,0.08)',
-    },
-
-    tab: (active) => ({
-      flex: 1,
-      padding: '18px 16px',
-      background: active ? 'rgba(0,122,255,0.10)' : 'transparent',
-      border: 'none',
-      color: active ? '#007aff' : '#86868b',
-      fontWeight: 600,
-      cursor: 'pointer',
-      fontSize: 14,
-    }),
-
-    authBox: {
-      padding: 36,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 16,
-    },
-
-    input: {
-      padding: '15px 16px',
-      borderRadius: 14,
-      border: '1px solid #d2d2d7',
-      background: 'rgba(255,255,255,0.95)',
-      color: '#1d1d1f',
-      outline: 'none',
-      fontFamily: 'inherit',
-      fontSize: 15,
-    },
-
-    btn: {
-      padding: '15px 18px',
-      borderRadius: 14,
-      border: 'none',
-      background: '#007aff',
-      color: '#ffffff',
-      fontWeight: 600,
-      cursor: 'pointer',
-      fontSize: 15,
-    },
-  };
-
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     try {
       await m.handleAuth(e);
-    } catch (err) {
+    } catch {
       m.showNotification('ОШИБКА АВТОРИЗАЦИИ РЕЕСТРА', 'error');
     }
   };

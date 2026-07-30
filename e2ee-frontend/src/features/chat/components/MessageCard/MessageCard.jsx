@@ -5,8 +5,6 @@ export default function MessageCard({
   time,
   isMine = false,
   status = "",
-  edited = false,
-  deleted = false,
 }) {
   return (
     <article className={`message-card ${isMine ? 'is-mine' : ''}`}>
