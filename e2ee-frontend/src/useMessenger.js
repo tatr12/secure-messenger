@@ -1,20 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
-import { derivePasswordKey, arrayBufferToBase64, base64ToArrayBuffer, decryptMessagePacket } from './crypto';
+import { arrayBufferToBase64, base64ToArrayBuffer, decryptMessagePacket } from './crypto';
+import { createSessionLifecycle } from './sessionLifecycle';
 
 // Укажи путь к звуковому файлу (из папки public или внешний URL)
 const NOTIFICATION_SOUND_URL = '/audio_2026-06-13_23-53-24.mp3';
+const DEFAULT_BIO = 'В сети СМЕРТЬ В НИЩЕТЕ';
 
 export function useMessenger() {
   const [isRegMode, setIsRegMode] = useState(false);
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
-  const [bio, setBio] = useState('В сети СМЕРТЬ В НИЩЕТЕ');
+  const [bio, setBio] = useState(DEFAULT_BIO);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userId, setUserId] = useState(null);
-  const [sessionToken, setSessionToken] = useState(null);
   const [activeChatUser, setActiveChatUser] = useState('');
   const [chatPartners, setChatPartners] = useState([]);
   const [userCache, setUserCache] = useState({});
@@ -31,7 +32,13 @@ export function useMessenger() {
 
   const outboundQueueRef = useRef([]);
   const myKeysRef = useRef({ publicKey: null, privateKey: null });
+  const sessionTokenRef = useRef(null);
   const wsRef = useRef(null);
+  const sessionLifecycleRef = useRef(null);
+
+  if (sessionLifecycleRef.current === null) {
+    sessionLifecycleRef.current = createSessionLifecycle();
+  }
 
   // Реф для аудио, чтобы не создавать экземпляр при каждом рендере
   const audioRef = useRef(null);
@@ -40,6 +47,27 @@ export function useMessenger() {
 
   const userCacheRef = useRef({});
   const inFlightFetchesRef = useRef(new Set());
+
+  const closeCurrentWebSocket = (reason) => {
+    const currentWebSocket = wsRef.current;
+    wsRef.current = null;
+
+    if (!currentWebSocket) return;
+
+    try {
+      currentWebSocket.close(1000, reason);
+    } catch (error) {
+      console.warn('[WS] Не удалось закрыть соединение', error);
+    }
+  };
+
+  const beginSession = () => {
+    const generation = sessionLifecycleRef.current.begin();
+    closeCurrentWebSocket('Starting a new session');
+    outboundQueueRef.current = [];
+    setWsStatus('offline');
+    return generation;
+  };
 
   // Инициализируем аудио-движок на фронте
   useEffect(() => {
@@ -68,6 +96,16 @@ export function useMessenger() {
   }, []);
 
   useEffect(() => {
+    return () => {
+      sessionLifecycleRef.current.end();
+      closeCurrentWebSocket('Application unmounted');
+      outboundQueueRef.current = [];
+      myKeysRef.current = { publicKey: null, privateKey: null };
+      sessionTokenRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
     userCacheRef.current = userCache;
   }, [userCache]);
 
@@ -77,16 +115,33 @@ export function useMessenger() {
       setSearchResults([]);
       return;
     }
+
+    const sessionGeneration = sessionLifecycleRef.current.currentGeneration();
+    const abortController = new AbortController();
     const delayDebounce = setTimeout(async () => {
+      if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
+
       try {
-        const res = await fetch(`/search?q=${searchQuery}&exclude=${username}`);
-        if (res.ok) {
+        const res = await fetch(`/search?q=${searchQuery}&exclude=${username}`, {
+          signal: abortController.signal,
+        });
+        if (
+          res.ok &&
+          sessionLifecycleRef.current.isActive(sessionGeneration)
+        ) {
           const data = await res.json();
-          setSearchResults(data);
+          if (sessionLifecycleRef.current.isActive(sessionGeneration)) {
+            setSearchResults(data);
+          }
         }
-      } catch (e) { console.error(e); }
+      } catch (error) {
+        if (error.name !== 'AbortError') console.error(error);
+      }
     }, 200);
-    return () => clearTimeout(delayDebounce);
+    return () => {
+      clearTimeout(delayDebounce);
+      abortController.abort();
+    };
   }, [searchQuery, username]);
 
   // Функция вызова красивого киберпанк-уведомления
@@ -118,6 +173,9 @@ export function useMessenger() {
 
   async function fetchAndCacheUser(login) {
     if (!login) return '';
+    const sessionGeneration = sessionLifecycleRef.current.currentGeneration();
+    if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return '';
+
     const cleanLogin = login.trim().toLowerCase();
 
     if (userCacheRef.current[cleanLogin]) return userCacheRef.current[cleanLogin];
@@ -125,8 +183,12 @@ export function useMessenger() {
     inFlightFetchesRef.current.add(cleanLogin);
     try {
       const res = await fetch(`/user/${cleanLogin}`);
-      if (res.ok) {
+      if (
+        res.ok &&
+        sessionLifecycleRef.current.isActive(sessionGeneration)
+      ) {
         const data = await res.json();
+        if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return '';
         setUserCache(prev => ({ ...prev, [cleanLogin]: data.display_name }));
         return data.display_name;
       }
@@ -138,11 +200,19 @@ export function useMessenger() {
   }
 
   async function inspectPartnerProfile(partnerLogin) {
+    const sessionGeneration = sessionLifecycleRef.current.currentGeneration();
+    if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
+
     try {
       const res = await fetch(`/user/${partnerLogin}`);
-      if (res.ok) {
+      if (
+        res.ok &&
+        sessionLifecycleRef.current.isActive(sessionGeneration)
+      ) {
         const data = await res.json();
-        setViewingPartnerProfile(data);
+        if (sessionLifecycleRef.current.isActive(sessionGeneration)) {
+          setViewingPartnerProfile(data);
+        }
       }
     } catch (e) { console.error(e); }
   }
@@ -150,13 +220,20 @@ export function useMessenger() {
   async function tryStartChat(targetLogin) {
     const cleanTarget = targetLogin.trim();
     if (!cleanTarget || cleanTarget === username) return false;
+    const sessionGeneration = sessionLifecycleRef.current.currentGeneration();
+    if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return false;
+
     try {
       const res = await fetch(`/user/${cleanTarget}`);
+      if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return false;
+
       if (!res.ok) {
         showNotification(`Ошибка доступа: Субъект @${cleanTarget} не зарегистрирован в сети.`, 'error');
         return false;
       }
       const data = await res.json();
+      if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return false;
+
       setUserCache(prev => ({ ...prev, [cleanTarget]: data.display_name }));
       setChatPartners(prev => prev.includes(cleanTarget) ? prev : [...prev, cleanTarget]);
       setActiveChatUser(cleanTarget);
@@ -171,14 +248,22 @@ export function useMessenger() {
 
   async function changeProfileData(newName, newBio) {
     if (!newName.trim()) return;
+    const sessionGeneration = sessionLifecycleRef.current.currentGeneration();
+    if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
+
     try {
       const res = await fetch(`/user/${username}/update`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ display_name: newName, bio: newBio })
       });
-      if (res.ok) {
+      if (
+        res.ok &&
+        sessionLifecycleRef.current.isActive(sessionGeneration)
+      ) {
         const data = await res.json();
+        if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
+
         setDisplayName(data.display_name);
         setBio(data.bio);
         setUserCache(prev => ({ ...prev, [username]: data.display_name }));
@@ -187,14 +272,27 @@ export function useMessenger() {
   }
 
   function sendReadReceipt(senderUsername) {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+    const lifecycle = sessionLifecycleRef.current;
+    const sessionGeneration = lifecycle.currentGeneration();
+
+    if (
+      lifecycle.isActive(sessionGeneration) &&
+      wsRef.current?.readyState === WebSocket.OPEN
+    ) {
       wsRef.current.send(JSON.stringify({ type: "read_receipt", sender: senderUsername }));
       setAllMessages(prev => prev.map(m => m.from === senderUsername ? { ...m, status: 'read' } : m));
     }
   }
 
-  async function syncCloudHistory(myPrivateKey, currentUsername, accessToken) {
+  async function syncCloudHistory(
+    myPrivateKey,
+    currentUsername,
+    accessToken,
+    sessionGeneration
+  ) {
     try {
+      if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
+
       if (!myPrivateKey) {
         console.error("[History] Приватный ключ отсутствует");
         return;
@@ -217,6 +315,8 @@ export function useMessenger() {
       }
 
       const encryptedHistory = await res.json();
+      if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
+
       const decryptedMessages = [];
       const partnersSet = new Set();
       const newNamesToCache = {};
@@ -227,6 +327,7 @@ export function useMessenger() {
       }
       const uniquePartners = Array.from(partnersSet);
       await Promise.all(uniquePartners.map(async (partner) => {
+        if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
         if (userCacheRef.current[partner]) return;
         try {
           const userRes = await fetch(`/user/${partner}`);
@@ -236,10 +337,15 @@ export function useMessenger() {
           }
         } catch (e) { console.error(e); }
       }));
+
+      if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
+
       if (Object.keys(newNamesToCache).length > 0) {
         setUserCache(prev => ({ ...prev, ...newNamesToCache }));
       }
       for (const msg of encryptedHistory) {
+        if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
+
         try {
           const decryptedText = await decryptMessagePacket(
             msg,
@@ -270,6 +376,8 @@ export function useMessenger() {
         return firstId - secondId;
       });
 
+      if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
+
       setChatPartners(uniquePartners);
       setAllMessages(decryptedMessages);
 
@@ -283,13 +391,6 @@ export function useMessenger() {
   }
 
   const handleAuth = async () => {
-    console.log('[AUTH]', {
-      isRegMode,
-      username,
-      email,
-      password,
-      confirmPassword,
-    });
     if (!username || !password) return;
 
     if (isRegMode) {
@@ -376,35 +477,40 @@ export function useMessenger() {
           }),
         });
 
+        let autoLoginSucceeded = false;
+
         if (loginResp.ok) {
           const loginData = await loginResp.json();
-
-          console.log("[Register AutoLogin]", loginData);
-
           const loggedUser = loginData.user;
+          const sessionGeneration = beginSession();
 
           setUserId(loggedUser.id);
-          setSessionToken(loginData.access_token);
+          sessionTokenRef.current = loginData.access_token;
           setUsername(loggedUser.username);
           setDisplayName(loggedUser.display_name || loggedUser.username);
           setIsLoggedIn(true);
 
-          initWebSocket(loggedUser.username, loginData.access_token);
+          initWebSocket(
+            loggedUser.username,
+            loginData.access_token,
+            sessionGeneration
+          );
 
           showNotification("Добро пожаловать!", "success");
+          autoLoginSucceeded = true;
         } else {
-          const errorData = await loginResp.json();
-          console.log("[AutoLogin error]", errorData);
-
           showNotification(
             "Аккаунт создан. Выполните вход.",
             "success"
           );
         }
 
-setIsRegMode(false);
-        setUsername('');
-        setDisplayName('');
+        setIsRegMode(false);
+        if (!autoLoginSucceeded) {
+          myKeysRef.current = { publicKey: null, privateKey: null };
+          setUsername('');
+          setDisplayName('');
+        }
         setEmail('');
         setPassword('');
         setConfirmPassword('');
@@ -434,17 +540,13 @@ setIsRegMode(false);
         }
 
         const data = await resp.json();
-        console.log('[Login] Server response:', data);
+        myKeysRef.current = { publicKey: null, privateKey: null };
 
         // Попытка восстановить privateKey из зашифрованных данных
-        console.log('[Login] Starting to restore private key for user:', username);
         try {
-          console.log('[Login] Fetching user data...');
           const userRes = await fetch(`/user/${username}`);
-          console.log('[Login] User fetch response status:', userRes.status);
           if (userRes.ok) {
             const userData = await userRes.json();
-            console.log('[Login] User data received, has encrypted_private_key:', !!userData.encrypted_private_key);
 
             // Расшифровка приватного ключа
             const encoder = new TextEncoder();
@@ -462,16 +564,13 @@ setIsRegMode(false);
               false,
               ["decrypt"]
             );
-            console.log('[Login] AES key derived for decryption');
 
             const decryptedPrivateKeyBuffer = await window.crypto.subtle.decrypt(
               { name: "AES-GCM", iv: base64ToArrayBuffer(userData.private_key_iv) },
               aesKey,
               base64ToArrayBuffer(userData.encrypted_private_key)
             );
-            console.log('[Login] Private key decrypted, buffer size:', decryptedPrivateKeyBuffer.byteLength);
 
-            console.log('[Login] Attempting to import PKCS8 key...');
             const privateKey = await window.crypto.subtle.importKey(
               "pkcs8",
               decryptedPrivateKeyBuffer,
@@ -479,7 +578,6 @@ setIsRegMode(false);
               true,
               ["deriveBits", "deriveKey"]
             );
-            console.log('[Login] Private key imported successfully');
 
             const restoredPrivateJwk =
               await window.crypto.subtle.exportKey("jwk", privateKey);
@@ -502,7 +600,6 @@ setIsRegMode(false);
               publicKey: userData.public_key,
               privateKey
             };
-            console.log('[Login] Private key restored successfully');
           }
         } catch (keyErr) {
           console.error('[Login] Ошибка восстановления приватного ключа:', keyErr);
@@ -511,10 +608,10 @@ setIsRegMode(false);
         }
 
         const loggedUser = data.user;
+        const sessionGeneration = beginSession();
 
-        console.log('[Login] Setting displayName to:', loggedUser.display_name);
         setUserId(loggedUser.id);
-        setSessionToken(data.access_token);
+        sessionTokenRef.current = data.access_token;
         setUsername(loggedUser.username);
         setDisplayName(loggedUser.display_name || loggedUser.username);
         setIsLoggedIn(true);
@@ -522,52 +619,72 @@ setIsRegMode(false);
         await syncCloudHistory(
           myKeysRef.current.privateKey,
           loggedUser.username,
-          data.access_token
+          data.access_token,
+          sessionGeneration
         );
 
-        initWebSocket(loggedUser.username, data.access_token);
+        if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
+
+        initWebSocket(loggedUser.username, data.access_token, sessionGeneration);
         setPassword('');
         showNotification(
           `Добро пожаловать, ${loggedUser.display_name || loggedUser.username}!`,
           "success"
         );
-      } catch (err) {
+      } catch {
         showNotification("Ошибка сети при входе", "error");
       }
     }
   };
 
-  function initWebSocket(user, token) {
-    if (!token) {
-      console.error("[WS] Session token отсутствует");
-      setWsStatus("offline");
+  function initWebSocket(user, token, sessionGeneration) {
+    const lifecycle = sessionLifecycleRef.current;
+
+    if (
+      !token ||
+      sessionTokenRef.current !== token ||
+      !lifecycle.isActive(sessionGeneration)
+    ) {
+      setWsStatus('offline');
       return;
     }
 
+    const previousWebSocket = wsRef.current;
     if (
-      wsRef.current &&
-      (wsRef.current.readyState === WebSocket.OPEN ||
-        wsRef.current.readyState === WebSocket.CONNECTING)
+      previousWebSocket &&
+      (previousWebSocket.readyState === WebSocket.OPEN ||
+        previousWebSocket.readyState === WebSocket.CONNECTING)
     ) {
-      wsRef.current.close();
+      try {
+        previousWebSocket.close(1000, 'Replacing connection');
+      } catch (error) {
+        console.warn('[WS] Не удалось заменить соединение', error);
+      }
     }
 
     const wsUrl =
       `ws://127.0.0.1:8000/ws?token=${encodeURIComponent(token)}`;
-
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
+
+    const isCurrentSocket = () =>
+      lifecycle.isActive(sessionGeneration) &&
+      sessionTokenRef.current === token &&
+      wsRef.current === ws;
+
     ws.onopen = () => {
+      if (!isCurrentSocket()) {
+        ws.close(1000, 'Stale session');
+        return;
+      }
+
       console.log(`[WS] Соединение установлено: ${user}`);
       setWsStatus('online');
 
       const queuedMessages = outboundQueueRef.current.splice(0);
-
-      console.log(
-        `[WS] Отправляем сообщения из очереди: ${queuedMessages.length}`
-      );
-
       for (const queued of queuedMessages) {
+        if (!isCurrentSocket()) return;
+
         ws.send(JSON.stringify({
           id: queued.msgId,
           to: queued.to,
@@ -577,51 +694,67 @@ setIsRegMode(false);
         }));
       }
     };
+
     ws.onclose = () => {
+      if (!isCurrentSocket()) return;
+
+      wsRef.current = null;
       setWsStatus('offline');
-      if (wsRef.current === ws) {
-        console.log(`[WS] Соединение потеряно, реконнект через 4с...`);
-        setTimeout(() => initWebSocket(user, token), 4000);
+      lifecycle.scheduleReconnect(
+        sessionGeneration,
+        () => initWebSocket(user, token, sessionGeneration),
+        4000
+      );
+    };
+
+    ws.onerror = (error) => {
+      if (isCurrentSocket()) {
+        console.error('[WS] Ошибка соединения:', error);
       }
     };
-    ws.onerror = (err) => {
-      console.error('[WS] Ошибка соединения:', err);
-    };
+
     ws.onmessage = async (event) => {
+      if (!isCurrentSocket()) return;
+
       let data;
       try {
         data = JSON.parse(event.data);
-
-        console.log("[WS IN] Получен пакет", {
-          type: data.type,
-          from: data.from,
-          to: data.to,
-          hasCiphertext: Boolean(data.ciphertext),
-          id: data.id
-        });
-      } catch (e) {
+      } catch {
         console.error('[WS] Невалидный JSON:', event.data);
         return;
       }
+
       if (data.type === "read_receipt_update") {
+        if (!isCurrentSocket()) return;
         setAllMessages(prev => prev.map(m => m.to === data.reader ? { ...m, status: 'read' } : m));
         return;
       }
 
       try {
+        const privateKey = myKeysRef.current.privateKey;
+        if (!privateKey) return;
+
         let senderName = userCacheRef.current[data.from];
         if (!senderName) {
-          const res = await fetch(`/user/${data.from}`);
-          if (res.ok) {
-            const senderData = await res.json();
-            senderName = senderData.display_name;
+          const profileResponse = await fetch(`/user/${data.from}`);
+          if (!isCurrentSocket()) return;
+
+          if (profileResponse.ok) {
+            const senderProfile = await profileResponse.json();
+            if (!isCurrentSocket()) return;
+            senderName = senderProfile.display_name;
             setUserCache(prev => ({ ...prev, [data.from]: senderName }));
           } else {
             senderName = data.from;
           }
         }
-        const res = await fetch(`/user/${data.from}`);
-        const senderData = await res.json();
+
+        const keyResponse = await fetch(`/user/${data.from}`);
+        if (!isCurrentSocket()) return;
+
+        const senderData = await keyResponse.json();
+        if (!isCurrentSocket()) return;
+
         const senderPublicKey = await window.crypto.subtle.importKey(
           "jwk", senderData.public_key,
           { name: "ECDH", namedCurve: "P-256" },
@@ -629,10 +762,9 @@ setIsRegMode(false);
         );
         const sharedBits = await window.crypto.subtle.deriveBits(
           { name: "ECDH", public: senderPublicKey },
-          myKeysRef.current.privateKey,
+          privateKey,
           256
         );
-
         const aesKey = await window.crypto.subtle.importKey(
           "raw",
           sharedBits,
@@ -645,55 +777,44 @@ setIsRegMode(false);
           aesKey,
           base64ToArrayBuffer(data.ciphertext)
         );
+
+        if (!isCurrentSocket()) return;
+
         const text = new TextDecoder().decode(decryptedRaw);
-
         setChatPartners(prev => prev.includes(data.from) ? prev : [...prev, data.from]);
-        setAllMessages(prev => [...prev,{
-          id:data.id,
-
-          from:data.from,
-          to:user,
-
-          type:"text",
-
+        setAllMessages(prev => [...prev, {
+          id: data.id,
+          from: data.from,
+          to: user,
+          type: "text",
           text,
-
-          createdAt:Date.now(),
-          updatedAt:Date.now(),
-
-          edited:false,
-          deleted:false,
-
-          replyTo:null,
-
-          reactions:{},
-
-          deliveredAt:Date.now(),
-          readAt:null,
-
-          time:data.time,
-
-          status:"delivered"
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          edited: false,
+          deleted: false,
+          replyTo: null,
+          reactions: {},
+          deliveredAt: Date.now(),
+          readAt: null,
+          time: data.time,
+          status: "delivered"
         }]);
 
-        // 🔥 КЛЮЧЕВАЯ ЛОГИКА ОПОВЕЩЕНИЯ В РЕАЛЬНОМ ВРЕМЕНИ
         playNotificationSound();
-
-        // Показываем пуш только если этот чат сейчас не открыт прямо перед глазами
-        // Чтобы не спамить пушами во время активного диалога
         showNotification(text, 'chat', senderName);
+      } catch (error) {
+        if (!isCurrentSocket()) return;
 
-      } catch (e) {
         console.error(
           '[WS] Ошибка расшифровки входящего сообщения:',
           {
-            name: e?.name,
-            message: e?.message,
+            name: error?.name,
+            message: error?.message,
             from: data?.from,
             to: data?.to,
             hasPrivateKey: Boolean(myKeysRef.current?.privateKey)
           },
-          e
+          error
         );
       }
     };
@@ -701,17 +822,14 @@ setIsRegMode(false);
 
   async function sendMessage(currentTarget, textOverride = null) {
     const currentMessage = textOverride ?? message;
-
-    console.log("[SEND DEBUG] sendMessage вызван", {
-      username,
-      currentTarget,
-      textLength: currentMessage?.length ?? 0,
-      wsExists: Boolean(wsRef.current),
-      wsReadyState: wsRef.current?.readyState,
-      hasPrivateKey: Boolean(myKeysRef.current?.privateKey)
-    });
-
     if (!currentTarget || !currentMessage.trim()) return;
+
+    const lifecycle = sessionLifecycleRef.current;
+    const sessionGeneration = lifecycle.currentGeneration();
+    const privateKey = myKeysRef.current.privateKey;
+
+    if (!lifecycle.isActive(sessionGeneration) || !privateKey) return;
+
     const msgId = Math.random();
     const timeString = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     setAllMessages(prev => [...prev, {
@@ -723,31 +841,19 @@ setIsRegMode(false);
     setMessage('');
     try {
       const res = await fetch(`/user/${currentTarget}`);
-
-      console.log("[SEND DEBUG] Ответ профиля получателя", {
-        status: res.status,
-        ok: res.ok,
-        currentTarget
-      });
+      if (!lifecycle.isActive(sessionGeneration)) return;
 
       if (!res.ok) {
         throw new Error(`Не удалось получить пользователя: HTTP ${res.status}`);
       }
 
       const targetData = await res.json();
-
-      console.log("[SEND DEBUG] Ключи перед шифрованием", {
-        hasTargetPublicKey: Boolean(targetData.public_key),
-        hasMyPrivateKey: Boolean(myKeysRef.current?.privateKey)
-      });
+      if (!lifecycle.isActive(sessionGeneration)) return;
 
       if (!targetData.public_key) {
         throw new Error("У получателя отсутствует public_key");
       }
 
-      if (!myKeysRef.current?.privateKey) {
-        throw new Error("Приватный ключ отправителя не восстановлен");
-      }
       const targetPublicKey = await window.crypto.subtle.importKey(
         "jwk", targetData.public_key,
         { name: "ECDH", namedCurve: "P-256" },
@@ -755,7 +861,7 @@ setIsRegMode(false);
       );
       const derivedBits = await window.crypto.subtle.deriveBits(
         { name: "ECDH", public: targetPublicKey },
-        myKeysRef.current.privateKey,
+        privateKey,
         256
       );
       const aesKey = await window.crypto.subtle.importKey(
@@ -772,11 +878,10 @@ setIsRegMode(false);
       const ciphertextBase64 = arrayBufferToBase64(ciphertextRaw);
       const ivBase64 = arrayBufferToBase64(iv);
 
-      console.log("[SEND DEBUG] Шифрование завершено", {
-        ciphertextLength: ciphertextBase64.length,
-        ivLength: ivBase64.length
-      });
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      if (!lifecycle.isActive(sessionGeneration)) return;
+
+      const currentWebSocket = wsRef.current;
+      if (currentWebSocket?.readyState === WebSocket.OPEN) {
         const packet = {
           id: msgId,
           to: currentTarget,
@@ -785,50 +890,71 @@ setIsRegMode(false);
           time: timeString
         };
 
-        console.log("[SEND] Отправляем WebSocket-пакет", {
-          from: username,
-          to: currentTarget,
-          readyState: wsRef.current.readyState,
-          hasPrivateKey: Boolean(myKeysRef.current?.privateKey)
-        });
-
-        wsRef.current.send(JSON.stringify(packet));
+        currentWebSocket.send(JSON.stringify(packet));
       } else {
         outboundQueueRef.current.push({ msgId, to: currentTarget, ciphertext: ciphertextBase64, iv: ivBase64, time: timeString });
       }
-    } catch (err) {
-      console.error('[sendMessage] Ошибка шифрования:', err);
+    } catch (error) {
+      if (lifecycle.isActive(sessionGeneration)) {
+        console.error('[sendMessage] Ошибка шифрования:', error);
+      }
     }
   }
 
-  function logout() {
-    console.log("[AUTH] Logout");
+  function terminateSession(reason) {
+    sessionLifecycleRef.current.end();
+    closeCurrentWebSocket(
+      reason === 'switch-account' ? 'Switching account' : 'Logging out'
+    );
 
-    // закрываем websocket
-    if (wsRef.current) {
-      try {
-        wsRef.current.close();
-      } catch (e) {
-        console.warn("[WS] close error", e);
-      }
-      wsRef.current = null;
+    myKeysRef.current = { publicKey: null, privateKey: null };
+    outboundQueueRef.current = [];
+    userCacheRef.current = {};
+    inFlightFetchesRef.current.clear();
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
     }
 
-    // очищаем локальные данные
-    localStorage.removeItem('token');
-    localStorage.removeItem('username');
-    localStorage.removeItem('privateKey');
-    localStorage.removeItem('publicKey');
+    try {
+      localStorage.removeItem('token');
+      localStorage.removeItem('username');
+      localStorage.removeItem('privateKey');
+      localStorage.removeItem('publicKey');
+    } catch (error) {
+      console.warn('[AUTH] Не удалось очистить устаревшее локальное состояние', error);
+    }
 
-    // очищаем состояние
     setIsLoggedIn(false);
     setUserId(null);
+    sessionTokenRef.current = null;
+    setIsRegMode(false);
+    setUsername('');
+    setDisplayName('');
+    setEmail('');
+    setBio(DEFAULT_BIO);
+    setPassword('');
+    setConfirmPassword('');
     setAllMessages([]);
     setChatPartners([]);
+    setUserCache({});
     setActiveChatUser('');
+    setMessage('');
     setWsStatus('offline');
+    setIsProfileOpen(false);
+    setViewingPartnerProfile(null);
+    setSearchQuery('');
+    setSearchResults([]);
+    setToasts([]);
+  }
 
-    console.log("[AUTH] Logged out");
+  function logout() {
+    terminateSession('logout');
+  }
+
+  function switchAccount() {
+    terminateSession('switch-account');
   }
 
 
@@ -853,7 +979,7 @@ setIsRegMode(false);
     searchResults,
     viewingPartnerProfile, setViewingPartnerProfile,
     toasts, showNotification, dismissToast, // Выводим управление пушами наружу
-    handleAuth, sendMessage, sendReadReceipt, logout,
-    changeProfileData, tryStartChat, fetchAndCacheUser, inspectPartnerProfile, initWebSocket
+    handleAuth, sendMessage, sendReadReceipt, logout, switchAccount,
+    changeProfileData, tryStartChat, fetchAndCacheUser, inspectPartnerProfile
   };
 }
