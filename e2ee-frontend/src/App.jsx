@@ -1,11 +1,11 @@
-import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { useMessenger } from './useMessenger';
 import LoginPage from './pages/Login/LoginPage';
 import ChatPage from './pages/Chat/ChatPage';
+import ToastViewport from './ui/ToastViewport/ToastViewport';
 
 export default function App() {
   const m = useMessenger();
-  const messagesEndRef = useRef(null);
   const [verificationStatus, setVerificationStatus] = useState(null);
   const isVerificationRoute = window.location.pathname === '/verify';
   const verificationToken = isVerificationRoute
@@ -45,30 +45,11 @@ export default function App() {
     verifyEmail();
   }, [verificationToken]);
 
-  const notifySuccessfulLogin = useEffectEvent((displayName) => {
-    m.showNotification(
-      `Терминал инициализирован. Добро пожаловать, ${displayName}`,
-      'success'
-    );
-  });
-
-  // Вешаем уведомление на успешный вход/регистрацию из хука
-  useEffect(() => {
-    if (m.isLoggedIn) {
-      notifySuccessfulLogin(m.displayName);
-    }
-  }, [m.displayName, m.isLoggedIn]);
-
-  // 1. Для автопрокрутки при появлении сообщений
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [m.allMessages]);
-
   const sendActiveChatReadReceipt = useEffectEvent((username) => {
     m.sendReadReceipt(username);
   });
 
-  // 2. Для отправки отчетов о прочтении
+  // Отправляем отчёт о прочтении активного диалога.
   useEffect(() => {
     if (m.isLoggedIn && m.activeChatUser && m.wsStatus === 'online') {
       sendActiveChatReadReceipt(m.activeChatUser);
@@ -84,28 +65,33 @@ export default function App() {
     }
   };
 
-  if (!m.isLoggedIn) {
-    return (
-      <LoginPage
-        isRegister={m.isRegMode}
-        username={m.username}
-        email={m.email}
-        password={m.password}
-        confirmPassword={m.confirmPassword}
-        onUsernameChange={(event) => m.setUsername(event.target.value)}
-        onEmailChange={(event) => m.setEmail(event.target.value)}
-        onPasswordChange={(event) => m.setPassword(event.target.value)}
-        onConfirmPasswordChange={(event) =>
-          m.setConfirmPassword(event.target.value)
-        }
-        onSubmit={handleAuthSubmit}
-        onSwitchMode={m.setIsRegMode}
-        verificationLoading={verificationLoading}
-        verificationStatus={verificationStatus}
-        verificationError={verificationError}
-      />
-    );
-  }
+  const activePage = !m.isLoggedIn ? (
+    <LoginPage
+      isRegister={m.isRegMode}
+      username={m.username}
+      email={m.email}
+      password={m.password}
+      confirmPassword={m.confirmPassword}
+      onUsernameChange={(event) => m.setUsername(event.target.value)}
+      onEmailChange={(event) => m.setEmail(event.target.value)}
+      onPasswordChange={(event) => m.setPassword(event.target.value)}
+      onConfirmPasswordChange={(event) =>
+        m.setConfirmPassword(event.target.value)
+      }
+      onSubmit={handleAuthSubmit}
+      onSwitchMode={m.setIsRegMode}
+      verificationLoading={verificationLoading}
+      verificationStatus={verificationStatus}
+      verificationError={verificationError}
+    />
+  ) : (
+    <ChatPage messenger={m} />
+  );
 
-  return <ChatPage messenger={m} />;
+  return (
+    <>
+      {activePage}
+      <ToastViewport toasts={m.toasts} onDismiss={m.dismissToast} />
+    </>
+  );
 }
