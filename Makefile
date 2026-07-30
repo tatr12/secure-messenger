@@ -71,6 +71,7 @@ test:
 
 check:
 	$(RUFF) check .
+	$(RUFF) format --check .
 	$(BLACK) --check .
 	$(PYTEST)
 

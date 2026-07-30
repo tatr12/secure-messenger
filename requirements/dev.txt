@@ -1,7 +1,7 @@
 -r base.txt
 
 pytest
-ruff
-black
+ruff==0.15.18
+black==25.1.0
 pwdlib
 pre-commit
