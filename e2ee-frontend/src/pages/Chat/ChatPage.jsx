@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import ChatList from '../../features/chat/components/ChatList/ChatList';
 import Conversation from '../../features/chat/components/Conversation/Conversation';
 import Sidebar from '../../features/chat/components/Sidebar/Sidebar';
@@ -8,15 +8,7 @@ import './ChatPage.css';
 
 
 export default function ChatPage({ messenger }) {
-  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
-
-  const switchAccount = () => {
-    console.log('[AUTH] Switch account');
-    alert('Смена аккаунта будет добавлена следующим этапом');
-  };
-
-
   const [accountMenu, setAccountMenu] = useState(false);
 
 
@@ -56,15 +48,23 @@ export default function ChatPage({ messenger }) {
           <div className="account-divider"/>
 
 
-          <button className="account-action">
+          <button
+            className="account-action"
+            type="button"
+            onClick={() => {
+              setAccountMenu(false);
+              messenger.switchAccount();
+            }}
+          >
             ↻ Сменить аккаунт
           </button>
 
 
           <button
             className="account-action"
+            type="button"
             onClick={() => {
-              setAccountMenuOpen(false);
+              setAccountMenu(false);
               setLogoutConfirm(true);
             }}
           >
@@ -90,6 +90,7 @@ export default function ChatPage({ messenger }) {
 
 
             <button
+              type="button"
               onClick={() => {
                 setLogoutConfirm(false);
                 setAccountMenu(false);
@@ -101,6 +102,7 @@ export default function ChatPage({ messenger }) {
 
 
             <button
+              type="button"
               onClick={() => setLogoutConfirm(false)}
             >
               Отмена
