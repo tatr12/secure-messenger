@@ -11,6 +11,7 @@ from app.database import get_db, redis_mgr
 from app.dependencies import AuthContext, get_current_auth, get_current_user, security
 from app.jwt import access_token_expires_in, create_access_token, decode_access_token
 from app.key_envelopes import deserialize_key_envelope, is_key_envelope_v2
+from app.message_protocol import serialize_message
 from app.repositories import MessageRepository, SessionRepository, UserRepository
 from app.schemas import (
     KeyEnvelopeResponseSchema,
@@ -440,7 +441,6 @@ async def update_profile(
     }
 
 
-# --- ВОСКРЕШАЕМ ЭНДПОИНТ ИСТОРИИ СООБЩЕНИЙ ---
 @router.get("/history")
 async def get_history(
     current_user=Depends(get_current_user),
@@ -448,19 +448,32 @@ async def get_history(
 ):
     repo = MessageRepository(db)
     messages = await repo.get_history(current_user.username)
+    return [serialize_message(message) for message in messages]
 
-    return [
-        {
-            "id": m.id,
-            "from": m.sender,
-            "to": m.receiver,
-            "ciphertext": m.ciphertext,
-            "iv": m.iv,
-            "time": m.time_str,
-            "status": m.status,
-        }
-        for m in messages
-    ]
+
+@router.get("/history/page")
+async def get_history_page(
+    before_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=50, ge=1, le=100),
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    repo = MessageRepository(db)
+    messages = await repo.get_history_page(
+        current_user.username,
+        before_id=before_id,
+        limit=limit + 1,
+    )
+    has_more = len(messages) > limit
+    if has_more:
+        messages = messages[1:]
+
+    return {
+        "messages": [serialize_message(message) for message in messages],
+        "next_before_id": messages[0].id if has_more and messages else None,
+        "unread_counts": await repo.get_unread_counts(current_user.username),
+        "chat_partners": await repo.get_chat_partners(current_user.username),
+    }
 
 
 @router.get("/me")

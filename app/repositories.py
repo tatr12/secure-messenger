@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import case, func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.key_envelopes import serialize_key_envelope_v2
@@ -110,6 +111,48 @@ class MessageRepository:
         await self.db.refresh(data)
         return data
 
+    async def get_by_client_message_id(
+        self,
+        sender: str,
+        client_message_id: str,
+    ) -> MessageTable | None:
+        stmt = select(MessageTable).where(
+            MessageTable.sender == sender,
+            MessageTable.client_message_id == client_message_id,
+        )
+        result = await self.db.execute(stmt)
+        return result.scalars().first()
+
+    async def save_message_idempotent(
+        self,
+        data: MessageTable,
+    ) -> tuple[MessageTable, bool]:
+        if not data.client_message_id:
+            return await self.save_message(data), True
+
+        existing = await self.get_by_client_message_id(
+            data.sender,
+            data.client_message_id,
+        )
+        if existing is not None:
+            return existing, False
+
+        self.db.add(data)
+        try:
+            await self.db.commit()
+        except IntegrityError:
+            await self.db.rollback()
+            existing = await self.get_by_client_message_id(
+                data.sender,
+                data.client_message_id,
+            )
+            if existing is None:
+                raise
+            return existing, False
+
+        await self.db.refresh(data)
+        return data, True
+
     async def get_history(self, username: str) -> list[MessageTable]:
         stmt = (
             select(MessageTable)
@@ -121,14 +164,69 @@ class MessageRepository:
         result = await self.db.execute(stmt)
         return result.scalars().all()
 
-    async def mark_as_read(self, sender: str, receiver: str):
+    async def get_history_page(
+        self,
+        username: str,
+        *,
+        before_id: int | None,
+        limit: int,
+    ) -> list[MessageTable]:
+        stmt = select(MessageTable).where(
+            or_(
+                MessageTable.sender == username,
+                MessageTable.receiver == username,
+            )
+        )
+        if before_id is not None:
+            stmt = stmt.where(MessageTable.id < before_id)
+        stmt = stmt.order_by(MessageTable.id.desc()).limit(limit)
+        result = await self.db.execute(stmt)
+        return list(reversed(result.scalars().all()))
+
+    async def get_unread_counts(self, username: str) -> dict[str, int]:
+        stmt = (
+            select(MessageTable.sender, func.count(MessageTable.id))
+            .where(
+                MessageTable.receiver == username,
+                MessageTable.status != "read",
+            )
+            .group_by(MessageTable.sender)
+        )
+        result = await self.db.execute(stmt)
+        return {sender: count for sender, count in result.all()}
+
+    async def get_chat_partners(self, username: str) -> list[str]:
+        partner = case(
+            (MessageTable.sender == username, MessageTable.receiver),
+            else_=MessageTable.sender,
+        )
+        stmt = (
+            select(partner.label("partner"))
+            .where(
+                or_(
+                    MessageTable.sender == username,
+                    MessageTable.receiver == username,
+                )
+            )
+            .distinct()
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def mark_as_read(self, sender: str, receiver: str) -> datetime:
+        read_at = datetime.now(UTC).replace(tzinfo=None)
         stmt = (
             update(MessageTable)
-            .where(MessageTable.sender == sender, MessageTable.receiver == receiver)
-            .values(status="read")
+            .where(
+                MessageTable.sender == sender,
+                MessageTable.receiver == receiver,
+                MessageTable.status != "read",
+            )
+            .values(status="read", read_at=read_at)
         )
         await self.db.execute(stmt)
         await self.db.commit()
+        return read_at
 
     async def mark_as_delivered(
         self, message_id: int, receiver: str
@@ -139,6 +237,7 @@ class MessageRepository:
 
         if message.status == "sent":
             message.status = "delivered"
+            message.delivered_at = datetime.now(UTC).replace(tzinfo=None)
             await self.db.commit()
 
         return message

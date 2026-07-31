@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import time
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db, redis_mgr
 from app.dependencies import authenticate_access_token
+from app.message_protocol import serialize_message, serialize_timestamp
 from app.models import MessageTable
 from app.repositories import MessageRepository, SessionRepository
 from app.services import socket_manager
@@ -94,10 +96,14 @@ async def websocket_endpoint(
 
                 if data.get("type") == "read_receipt":
                     sender_of_msg = data.get("sender")
-                    await repo.mark_as_read(sender=sender_of_msg, receiver=username)
+                    read_at = await repo.mark_as_read(
+                        sender=sender_of_msg,
+                        receiver=username,
+                    )
                     receipt_packet = {
                         "type": "read_receipt_update",
                         "reader": username,
+                        "read_at": serialize_timestamp(read_at),
                         "to": sender_of_msg,
                     }
                     await redis_mgr.publish_message("messenger_routing", receipt_packet)
@@ -122,32 +128,39 @@ async def websocket_endpoint(
                         "message_id": delivered_message.id,
                         "client_id": data.get("client_id"),
                         "recipient": username,
+                        "delivered_at": serialize_timestamp(
+                            delivered_message.delivered_at
+                        ),
                         "to": delivered_message.sender,
                     }
                     await redis_mgr.publish_message(
                         "messenger_routing", delivery_packet
                     )
                 else:
-                    client_id = data.get("client_id", data.get("id"))
+                    raw_client_id = data.get("client_id", data.get("id"))
+                    client_id = (
+                        str(raw_client_id)
+                        if raw_client_id is not None
+                        else str(uuid4())
+                    )
+                    if not client_id or len(client_id) > 64:
+                        logger.warning(f"[{username}] invalid client message id")
+                        continue
+                    created_at = datetime.now(UTC).replace(tzinfo=None)
                     db_msg = MessageTable(
                         sender=username,
                         receiver=data.get("to"),
+                        client_message_id=client_id,
                         ciphertext=data.get("ciphertext"),
                         iv=data.get("iv"),
-                        time_str=data.get("time"),
+                        time_str=created_at.strftime("%H:%M"),
                         status="sent",
+                        created_at=created_at,
                     )
-                    await repo.save_message(db_msg)
+                    db_msg, created = await repo.save_message_idempotent(db_msg)
                     packet = {
                         "type": "message",
-                        "id": db_msg.id,
-                        "from": username,
-                        "to": db_msg.receiver,
-                        "ciphertext": db_msg.ciphertext,
-                        "iv": db_msg.iv,
-                        "time": db_msg.time_str,
-                        "status": "sent",
-                        "client_id": client_id,
+                        **serialize_message(db_msg),
                     }
                     try:
                         await websocket.send_json(
@@ -156,6 +169,8 @@ async def websocket_endpoint(
                                 "client_id": client_id,
                                 "message_id": db_msg.id,
                                 "status": "sent",
+                                "created_at": serialize_timestamp(db_msg.created_at),
+                                "duplicate": not created,
                             }
                         )
                     except Exception as error:
