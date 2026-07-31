@@ -1,0 +1,121 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>VØIDEN Seed Users</title>
+</head>
+
+<body>
+
+<h2>VØIDEN Test Users Seeder</h2>
+<pre id="log"></pre>
+
+<script type="module">
+
+import { createKeyEnvelopeV2 } from "../src/crypto.js";
+
+const log = (msg) => {
+  document.querySelector("#log").textContent += msg + "\n";
+};
+
+
+const USERS = [
+  ["voiden_alice", "Alice123456!"],
+  ["voiden_bob", "Bob123456!"],
+  ["voiden_charlie", "Charlie123456!"],
+  ["voiden_diana", "Diana123456!"],
+  ["voiden_admin", "Admin123456!"],
+  ["voiden_test", "Test123456!"],
+];
+
+
+async function createUser(username, password) {
+
+  const generatedKeys =
+    await crypto.subtle.generateKey(
+      {
+        name:"ECDH",
+        namedCurve:"P-256"
+      },
+      true,
+      [
+        "deriveBits",
+        "deriveKey"
+      ]
+    );
+
+
+  const publicKey =
+    await crypto.subtle.exportKey(
+      "jwk",
+      generatedKeys.publicKey
+    );
+
+
+  const privateKey =
+    await crypto.subtle.exportKey(
+      "pkcs8",
+      generatedKeys.privateKey
+    );
+
+
+  const envelope =
+    await createKeyEnvelopeV2(
+      privateKey,
+      password
+    );
+
+
+  const response =
+    await fetch(
+      "/register",
+      {
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json"
+        },
+        body:JSON.stringify({
+          username,
+          display_name:username,
+          email:`${username}@example.com`,
+          password,
+          bio:"VØIDEN DEV TEST",
+          public_key:publicKey,
+          key_envelope:envelope
+        })
+      }
+    );
+
+
+  log(
+    username +
+    " -> " +
+    response.status +
+    " " +
+    await response.text()
+  );
+}
+
+
+for (const user of USERS) {
+
+  try {
+    await createUser(
+      user[0],
+      user[1]
+    );
+  }
+  catch(e){
+    log(
+      user[0] +
+      " ERROR " +
+      e.message
+    );
+  }
+
+}
+
+</script>
+
+</body>
+</html>
