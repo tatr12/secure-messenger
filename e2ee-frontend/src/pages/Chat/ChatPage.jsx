@@ -185,6 +185,8 @@ export default function ChatPage({ messenger }) {
         tryStartChat={messenger.tryStartChat}
         messages={messenger.allMessages}
         username={messenger.username}
+        unreadCounts={messenger.unreadCounts}
+        historyPartners={messenger.historyPartners}
       />
 
       {messenger.activeChatUser ? (
@@ -210,6 +212,9 @@ export default function ChatPage({ messenger }) {
             messenger.sendMessage(messenger.activeChatUser, text);
           }}
           onRetryMessage={messenger.retryMessage}
+          hasOlderMessages={messenger.hasOlderMessages}
+          historyLoading={messenger.historyLoading}
+          onLoadOlderMessages={messenger.loadOlderMessages}
         />
       ) : (
         <div className="empty-chat">

@@ -53,6 +53,7 @@ test('chat summaries sort by activity and count only unread incoming messages', 
 
 test('chat preview identifies outgoing and failed messages truthfully', () => {
   assert.equal(getChatPreview(null, 'alice'), 'Начать диалог');
+  assert.equal(getChatPreview(null, 'alice', true), 'История доступна');
   assert.equal(
     getChatPreview({ from: 'bob', text: 'Привет' }, 'alice'),
     'Привет',
@@ -65,4 +66,15 @@ test('chat preview identifies outgoing and failed messages truthfully', () => {
     getChatPreview({ from: 'alice', text: 'Ответ', status: 'error' }, 'alice'),
     'Не отправлено: Ответ',
   );
+});
+
+test('server unread metadata overrides the loaded history window', () => {
+  const [summary] = buildChatSummaries(
+    ['bob'],
+    [{ id: 1, from: 'bob', to: 'alice', status: 'delivered' }],
+    'alice',
+    { bob: 12 },
+  );
+
+  assert.equal(summary.unreadCount, 12);
 });

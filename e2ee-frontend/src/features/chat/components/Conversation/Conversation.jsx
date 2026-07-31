@@ -19,6 +19,9 @@ export default function Conversation({
   onOpenProfile,
   onUnavailableAction,
   onRetryMessage,
+  hasOlderMessages,
+  historyLoading,
+  onLoadOlderMessages,
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [messageSearch, setMessageSearch] = useState('');
@@ -83,6 +86,9 @@ export default function Conversation({
           messageSearch.trim() ? 'Совпадений не найдено' : 'Нет сообщений'
         }
         onRetryMessage={onRetryMessage}
+        hasOlderMessages={hasOlderMessages && !messageSearch.trim()}
+        historyLoading={historyLoading}
+        onLoadOlderMessages={onLoadOlderMessages}
       />
 
       <Composer onSend={sendMessage} />

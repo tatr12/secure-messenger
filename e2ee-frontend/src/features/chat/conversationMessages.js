@@ -26,7 +26,12 @@ function getPartnerUsername(message, currentUsername) {
   return null;
 }
 
-export function buildChatSummaries(chatPartners, messages, currentUsername) {
+export function buildChatSummaries(
+  chatPartners,
+  messages,
+  currentUsername,
+  unreadCounts = {},
+) {
   const partnerOrder = new Map(
     chatPartners.map((partner, index) => [partner, index]),
   );
@@ -61,6 +66,12 @@ export function buildChatSummaries(chatPartners, messages, currentUsername) {
     summaries.set(partner, summary);
   });
 
+  for (const summary of summaries.values()) {
+    if (summary.partner in unreadCounts) {
+      summary.unreadCount = unreadCounts[summary.partner];
+    }
+  }
+
   return Array.from(summaries.values()).sort((first, second) => {
     if (first.lastMessageIndex !== second.lastMessageIndex) {
       return second.lastMessageIndex - first.lastMessageIndex;
@@ -72,8 +83,8 @@ export function buildChatSummaries(chatPartners, messages, currentUsername) {
   });
 }
 
-export function getChatPreview(message, currentUsername) {
-  if (!message) return 'Начать диалог';
+export function getChatPreview(message, currentUsername, hasHistory = false) {
+  if (!message) return hasHistory ? 'История доступна' : 'Начать диалог';
 
   const text = String(message.text ?? message.content ?? '').trim();
   const preview = text || 'Зашифрованное сообщение';

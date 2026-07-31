@@ -19,11 +19,22 @@ export default function ChatList({
   tryStartChat,
   messages = [],
   username: currentUsername,
+  unreadCounts = {},
+  historyPartners = [],
 }) {
   const searchInputRef = useRef(null);
+  const historyPartnerSet = useMemo(
+    () => new Set(historyPartners),
+    [historyPartners],
+  );
   const chatSummaries = useMemo(
-    () => buildChatSummaries(chatPartners, messages, currentUsername),
-    [chatPartners, currentUsername, messages],
+    () => buildChatSummaries(
+      chatPartners,
+      messages,
+      currentUsername,
+      unreadCounts,
+    ),
+    [chatPartners, currentUsername, messages, unreadCounts],
   );
 
   const startNewChat = () => {
@@ -130,7 +141,11 @@ export default function ChatList({
 
                 <div className="chat-list__bottomline">
                   <span className={lastMessage?.status === 'error' ? 'is-error' : ''}>
-                    {getChatPreview(lastMessage, currentUsername)}
+                    {getChatPreview(
+                      lastMessage,
+                      currentUsername,
+                      historyPartnerSet.has(partner),
+                    )}
                   </span>
                   {unreadCount > 0 && (
                     <span

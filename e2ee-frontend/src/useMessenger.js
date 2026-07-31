@@ -17,11 +17,13 @@ import {
 } from './sessionApi';
 import { updateProfile } from './profileApi';
 import { buildWebSocketProtocols, buildWebSocketUrl } from './websocketUrl';
+import { formatMessageTime } from './features/chat/messageDates';
 import { advanceMessageStatus } from './features/chat/messageStatus';
 
 // Укажи путь к звуковому файлу (из папки public или внешний URL)
 const NOTIFICATION_SOUND_URL = '/audio_2026-06-13_23-53-24.mp3';
 const DEFAULT_BIO = 'В сети СМЕРТЬ В НИЩЕТЕ';
+const HISTORY_PAGE_SIZE = 50;
 
 export function useMessenger() {
   const [isRegMode, setIsRegMode] = useState(false);
@@ -38,6 +40,10 @@ export function useMessenger() {
   const [userCache, setUserCache] = useState({});
   const [message, setMessage] = useState('');
   const [allMessages, setAllMessages] = useState([]);
+  const [unreadCounts, setUnreadCounts] = useState({});
+  const [historyPartners, setHistoryPartners] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [wsStatus, setWsStatus] = useState('offline');
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [viewingPartnerProfile, setViewingPartnerProfile] = useState(null);
@@ -49,8 +55,11 @@ export function useMessenger() {
   // Новый стейт для хранения кастомных пуш-уведомлений
   const [toasts, setToasts] = useState([]);
 
-  const outboundQueueRef = useRef([]);
+  const outboundQueueRef = useRef(new Map());
   const deliveryReceiptQueueRef = useRef(new Map());
+  const receivedMessageIdsRef = useRef(new Set());
+  const historyBeforeIdRef = useRef(null);
+  const historyLoadingRef = useRef(false);
   const myKeysRef = useRef({ publicKey: null, privateKey: null });
   const sessionTokenRef = useRef(null);
   const sessionRefreshPromiseRef = useRef(null);
@@ -94,8 +103,13 @@ export function useMessenger() {
   const beginSession = () => {
     const generation = sessionLifecycleRef.current.begin();
     closeCurrentWebSocket('Starting a new session');
-    outboundQueueRef.current = [];
+    outboundQueueRef.current.clear();
     deliveryReceiptQueueRef.current.clear();
+    receivedMessageIdsRef.current.clear();
+    historyBeforeIdRef.current = null;
+    historyLoadingRef.current = false;
+    setHistoryLoading(false);
+    setHasOlderMessages(false);
     setWsStatus('offline');
     return generation;
   };
@@ -186,13 +200,16 @@ export function useMessenger() {
   }, []);
 
   useEffect(() => {
+    const outboundQueue = outboundQueueRef.current;
     const deliveryReceiptQueue = deliveryReceiptQueueRef.current;
+    const receivedMessageIds = receivedMessageIdsRef.current;
 
     return () => {
       sessionLifecycleRef.current.end();
       closeCurrentWebSocket('Application unmounted');
-      outboundQueueRef.current = [];
+      outboundQueue.clear();
       deliveryReceiptQueue.clear();
+      receivedMessageIds.clear();
       myKeysRef.current = { publicKey: null, privateKey: null };
       sessionTokenRef.current = null;
       sessionRefreshPromiseRef.current = null;
@@ -465,124 +482,249 @@ export function useMessenger() {
       lifecycle.isActive(sessionGeneration) &&
       wsRef.current?.readyState === WebSocket.OPEN
     ) {
-      wsRef.current.send(JSON.stringify({ type: "read_receipt", sender: senderUsername }));
-      setAllMessages(prev => prev.map(m => (
-        m.from === senderUsername && m.to === username
-          ? { ...m, status: advanceMessageStatus(m.status, 'read') }
-          : m
-      )));
+      try {
+        const readAt = new Date().toISOString();
+        wsRef.current.send(JSON.stringify({
+          type: 'read_receipt',
+          sender: senderUsername,
+        }));
+        setAllMessages(prev => prev.map(m => (
+          m.from === senderUsername && m.to === username
+            ? {
+                ...m,
+                status: advanceMessageStatus(m.status, 'read'),
+                readAt,
+              }
+            : m
+        )));
+        setUnreadCounts((current) => ({
+          ...current,
+          [senderUsername]: 0,
+        }));
+      } catch (error) {
+        console.warn('[WS] Не удалось отправить подтверждение прочтения', error);
+      }
     }
+  }
+
+  function flushDeliveryReceipts(socket) {
+    if (socket?.readyState !== WebSocket.OPEN) return;
+
+    for (const [messageId, clientId] of deliveryReceiptQueueRef.current) {
+      try {
+        socket.send(JSON.stringify({
+          type: 'delivery_receipt',
+          message_id: messageId,
+          client_id: clientId,
+        }));
+        deliveryReceiptQueueRef.current.delete(messageId);
+      } catch (error) {
+        console.warn('[WS] Подтверждение доставки осталось в очереди', error);
+        return;
+      }
+    }
+  }
+
+  function queueDeliveryReceipt(messageId, clientId) {
+    if (!Number.isInteger(messageId)) return;
+    deliveryReceiptQueueRef.current.set(messageId, clientId ?? null);
+    flushDeliveryReceipts(wsRef.current);
+  }
+
+  async function requestHistoryPage(accessToken, beforeId = null) {
+    const query = new URLSearchParams({ limit: String(HISTORY_PAGE_SIZE) });
+    if (beforeId) query.set('before_id', String(beforeId));
+
+    const response = await fetch(`/history/page?${query}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  }
+
+  async function cachePartnerNames(partners, sessionGeneration) {
+    const newNamesToCache = {};
+    await Promise.all(partners.map(async (partner) => {
+      if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
+      if (userCacheRef.current[partner]) return;
+
+      try {
+        const response = await fetch(`/user/${partner}`);
+        if (!response.ok) return;
+        const userData = await response.json();
+        newNamesToCache[partner] = userData.display_name;
+      } catch (error) {
+        console.error('[History] Не удалось загрузить имя пользователя', error);
+      }
+    }));
+
+    if (
+      sessionLifecycleRef.current.isActive(sessionGeneration) &&
+      Object.keys(newNamesToCache).length > 0
+    ) {
+      setUserCache((current) => ({ ...current, ...newNamesToCache }));
+    }
+  }
+
+  async function decryptHistoryMessages(
+    encryptedMessages,
+    myPrivateKey,
+    currentUsername,
+    sessionGeneration,
+  ) {
+    const decryptedMessages = [];
+
+    for (const encryptedMessage of encryptedMessages) {
+      if (!sessionLifecycleRef.current.isActive(sessionGeneration)) break;
+
+      try {
+        const decryptedText = await decryptMessagePacket(
+          encryptedMessage,
+          myPrivateKey,
+          currentUsername,
+        );
+        const createdAt = encryptedMessage.created_at ?? null;
+        decryptedMessages.push({
+          id: encryptedMessage.id || crypto.randomUUID(),
+          serverId: encryptedMessage.id,
+          clientId: encryptedMessage.client_id ?? null,
+          from: encryptedMessage.from,
+          to: encryptedMessage.to,
+          text: decryptedText,
+          createdAt,
+          deliveredAt: encryptedMessage.delivered_at ?? null,
+          readAt: encryptedMessage.read_at ?? null,
+          time: formatMessageTime(createdAt, encryptedMessage.time),
+          status: encryptedMessage.status || 'sent',
+          isMine: encryptedMessage.from === currentUsername,
+        });
+        if (Number.isInteger(encryptedMessage.id)) {
+          receivedMessageIdsRef.current.add(encryptedMessage.id);
+        }
+
+        if (
+          encryptedMessage.from !== currentUsername &&
+          encryptedMessage.status === 'sent'
+        ) {
+          queueDeliveryReceipt(
+            encryptedMessage.id,
+            encryptedMessage.client_id,
+          );
+        }
+      } catch (decryptError) {
+        console.error(
+          `[History] Не удалось расшифровать сообщение ${encryptedMessage.id}:`,
+          decryptError,
+        );
+      }
+    }
+
+    return decryptedMessages;
   }
 
   async function syncCloudHistory(
     myPrivateKey,
     currentUsername,
     accessToken,
-    sessionGeneration
+    sessionGeneration,
   ) {
+    historyLoadingRef.current = true;
+    setHistoryLoading(true);
     try {
       if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
 
-      if (!myPrivateKey) {
-        console.error("[History] Приватный ключ отсутствует");
+      if (!myPrivateKey || !accessToken) {
+        console.error('[History] Ключ или активная сессия отсутствуют');
         return;
       }
 
-      if (!accessToken) {
-        console.error("[History] Access token отсутствует");
-        return;
-      }
-
-      const res = await fetch("/history", {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        }
-      });
-
-      if (!res.ok) {
-        console.error("[History] Ошибка загрузки:", res.status);
-        return;
-      }
-
-      const encryptedHistory = await res.json();
+      const page = await requestHistoryPage(accessToken);
       if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
 
-      const decryptedMessages = [];
-      const partnersSet = new Set();
-      const newNamesToCache = {};
-
-      for (const msg of encryptedHistory) {
-        const partner = msg.from === currentUsername ? msg.to : msg.from;
-        partnersSet.add(partner);
-      }
-      const uniquePartners = Array.from(partnersSet);
-      await Promise.all(uniquePartners.map(async (partner) => {
-        if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
-        if (userCacheRef.current[partner]) return;
-        try {
-          const userRes = await fetch(`/user/${partner}`);
-          if (userRes.ok) {
-            const userData = await userRes.json();
-            newNamesToCache[partner] = userData.display_name;
-          }
-        } catch (e) { console.error(e); }
-      }));
+      const partners = page.chat_partners ?? [];
+      await cachePartnerNames(partners, sessionGeneration);
+      const decryptedMessages = await decryptHistoryMessages(
+        page.messages ?? [],
+        myPrivateKey,
+        currentUsername,
+        sessionGeneration,
+      );
 
       if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
 
-      if (Object.keys(newNamesToCache).length > 0) {
-        setUserCache(prev => ({ ...prev, ...newNamesToCache }));
-      }
-      for (const msg of encryptedHistory) {
-        if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
-
-        try {
-          const decryptedText = await decryptMessagePacket(
-            msg,
-            myPrivateKey,
-            currentUsername
-          );
-
-          decryptedMessages.push({
-            id: msg.id || crypto.randomUUID(),
-            serverId: msg.id,
-            clientId: null,
-            from: msg.from,
-            to: msg.to,
-            text: decryptedText,
-            time: msg.time,
-            status: msg.status || "sent",
-            isMine: msg.from === currentUsername
-          });
-
-          if (msg.from !== currentUsername && msg.status === 'sent') {
-            deliveryReceiptQueueRef.current.set(msg.id, null);
-          }
-        } catch (decryptError) {
-          console.error(
-            `[History] Не удалось расшифровать сообщение ${msg.id}:`,
-            decryptError
-          );
-        }
-      }
-
-      decryptedMessages.sort((a, b) => {
-        const firstId = Number(a.id) || 0;
-        const secondId = Number(b.id) || 0;
-        return firstId - secondId;
-      });
-
-      if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
-
-      setChatPartners(uniquePartners);
+      historyBeforeIdRef.current = page.next_before_id ?? null;
+      setHasOlderMessages(Boolean(page.next_before_id));
+      setUnreadCounts(page.unread_counts ?? {});
+      setHistoryPartners(partners);
+      setChatPartners(partners);
       setAllMessages(decryptedMessages);
 
-      console.log("[History] История восстановлена", {
+      console.log('[History] Последняя страница восстановлена', {
         messages: decryptedMessages.length,
-        chats: uniquePartners.length
+        chats: partners.length,
       });
-    } catch (e) {
-      console.error("[History] Ошибка синхронизации:", e);
+    } catch (error) {
+      if (sessionLifecycleRef.current.isActive(sessionGeneration)) {
+        console.error('[History] Ошибка синхронизации:', error);
+        showNotification('Не удалось загрузить историю сообщений.', 'error');
+      }
+    } finally {
+      historyLoadingRef.current = false;
+      if (sessionLifecycleRef.current.isActive(sessionGeneration)) {
+        setHistoryLoading(false);
+      }
+    }
+  }
+
+  async function loadOlderMessages() {
+    const lifecycle = sessionLifecycleRef.current;
+    const sessionGeneration = lifecycle.currentGeneration();
+    const beforeId = historyBeforeIdRef.current;
+    const privateKey = myKeysRef.current.privateKey;
+    const accessToken = sessionTokenRef.current;
+    if (
+      !lifecycle.isActive(sessionGeneration) ||
+      !beforeId ||
+      !privateKey ||
+      !accessToken ||
+      historyLoadingRef.current
+    ) return;
+
+    historyLoadingRef.current = true;
+    setHistoryLoading(true);
+    try {
+      const page = await requestHistoryPage(accessToken, beforeId);
+      if (!lifecycle.isActive(sessionGeneration)) return;
+
+      const decryptedMessages = await decryptHistoryMessages(
+        page.messages ?? [],
+        privateKey,
+        username,
+        sessionGeneration,
+      );
+      if (!lifecycle.isActive(sessionGeneration)) return;
+
+      historyBeforeIdRef.current = page.next_before_id ?? null;
+      setHasOlderMessages(Boolean(page.next_before_id));
+      setUnreadCounts(page.unread_counts ?? {});
+      setAllMessages((current) => {
+        const knownServerIds = new Set(current.map((item) => item.serverId));
+        const olderMessages = decryptedMessages.filter(
+          (item) => !knownServerIds.has(item.serverId),
+        );
+        return [...olderMessages, ...current];
+      });
+    } catch (error) {
+      if (lifecycle.isActive(sessionGeneration)) {
+        console.error('[History] Ошибка загрузки старых сообщений:', error);
+        showNotification('Не удалось загрузить предыдущие сообщения.', 'error');
+      }
+    } finally {
+      historyLoadingRef.current = false;
+      if (lifecycle.isActive(sessionGeneration)) {
+        setHistoryLoading(false);
+      }
     }
   }
 
@@ -862,8 +1004,7 @@ export function useMessenger() {
       console.log(`[WS] Соединение установлено: ${user}`);
       setWsStatus('online');
 
-      const queuedMessages = outboundQueueRef.current.splice(0);
-      for (const queued of queuedMessages) {
+      for (const queued of outboundQueueRef.current.values()) {
         if (!isCurrentSocket()) return;
 
         try {
@@ -875,29 +1016,12 @@ export function useMessenger() {
             time: queued.time
           }));
         } catch (error) {
-          console.error('[WS] Не удалось отправить сообщение из очереди', error);
-          setAllMessages((current) => current.map((item) => (
-            item.clientId === queued.clientId
-              ? { ...item, status: 'error' }
-              : item
-          )));
-        }
-      }
-
-      for (const [messageId, clientId] of deliveryReceiptQueueRef.current) {
-        if (!isCurrentSocket()) return;
-        try {
-          ws.send(JSON.stringify({
-            type: 'delivery_receipt',
-            message_id: messageId,
-            client_id: clientId,
-          }));
-          deliveryReceiptQueueRef.current.delete(messageId);
-        } catch (error) {
-          console.warn('[WS] Подтверждение доставки осталось в очереди', error);
+          console.warn('[WS] Сообщение осталось в очереди подтверждения', error);
           return;
         }
       }
+
+      flushDeliveryReceipts(ws);
     };
 
     ws.onclose = (event) => {
@@ -937,18 +1061,25 @@ export function useMessenger() {
         if (!isCurrentSocket()) return;
         setAllMessages(prev => prev.map(m => (
           m.from === user && m.to === data.reader
-            ? { ...m, status: advanceMessageStatus(m.status, 'read') }
+            ? {
+                ...m,
+                status: advanceMessageStatus(m.status, 'read'),
+                readAt: data.read_at ?? m.readAt,
+              }
             : m
         )));
         return;
       }
 
       if (data.type === 'message_ack') {
+        outboundQueueRef.current.delete(data.client_id);
         setAllMessages((current) => current.map((item) => (
           item.clientId === data.client_id
             ? {
                 ...item,
                 serverId: data.message_id,
+                createdAt: data.created_at ?? item.createdAt,
+                time: formatMessageTime(data.created_at, item.time),
                 status: advanceMessageStatus(item.status, 'sent'),
               }
             : item
@@ -966,9 +1097,18 @@ export function useMessenger() {
           return {
             ...item,
             serverId: data.message_id,
+            deliveredAt: data.delivered_at ?? item.deliveredAt,
             status: advanceMessageStatus(item.status, 'delivered'),
           };
         }));
+        return;
+      }
+
+      if (
+        Number.isInteger(data.id) &&
+        receivedMessageIdsRef.current.has(data.id)
+      ) {
+        queueDeliveryReceipt(data.id, data.client_id);
         return;
       }
 
@@ -1023,40 +1163,40 @@ export function useMessenger() {
         if (!isCurrentSocket()) return;
 
         const text = new TextDecoder().decode(decryptedRaw);
+        const createdAt = data.created_at ?? new Date().toISOString();
+        const deliveredAt = data.delivered_at ?? new Date().toISOString();
+        if (Number.isInteger(data.id)) {
+          receivedMessageIdsRef.current.add(data.id);
+        }
         setChatPartners(prev => prev.includes(data.from) ? prev : [...prev, data.from]);
+        setHistoryPartners((current) => (
+          current.includes(data.from) ? current : [...current, data.from]
+        ));
+        setUnreadCounts((current) => ({
+          ...current,
+          [data.from]: (current[data.from] ?? 0) + 1,
+        }));
         setAllMessages(prev => [...prev, {
           id: data.id,
           serverId: data.id,
           clientId: data.client_id ?? null,
           from: data.from,
           to: user,
-          type: "text",
+          type: 'text',
           text,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
+          createdAt,
+          updatedAt: createdAt,
           edited: false,
           deleted: false,
           replyTo: null,
           reactions: {},
-          deliveredAt: Date.now(),
+          deliveredAt,
           readAt: null,
-          time: data.time,
-          status: "delivered"
+          time: formatMessageTime(createdAt, data.time),
+          status: 'delivered',
         }]);
 
-        try {
-          ws.send(JSON.stringify({
-            type: 'delivery_receipt',
-            message_id: data.id,
-            client_id: data.client_id ?? null,
-          }));
-        } catch (receiptError) {
-          deliveryReceiptQueueRef.current.set(
-            data.id,
-            data.client_id ?? null,
-          );
-          console.warn('[WS] Подтверждение доставки поставлено в очередь', receiptError);
-        }
+        queueDeliveryReceipt(data.id, data.client_id);
 
         playNotificationSound();
         showNotification(text, 'chat', senderName);
@@ -1126,32 +1266,29 @@ export function useMessenger() {
 
       if (!lifecycle.isActive(sessionGeneration)) return false;
 
+      const packet = {
+        clientId,
+        to: currentTarget,
+        ciphertext: ciphertextBase64,
+        iv: ivBase64,
+        time: timeString,
+      };
+      outboundQueueRef.current.set(clientId, packet);
+
       const currentWebSocket = wsRef.current;
       if (currentWebSocket?.readyState === WebSocket.OPEN) {
-        const packet = {
+        currentWebSocket.send(JSON.stringify({
           client_id: clientId,
           to: currentTarget,
           ciphertext: ciphertextBase64,
           iv: ivBase64,
-          time: timeString
-        };
-
-        currentWebSocket.send(JSON.stringify(packet));
-      } else {
-        outboundQueueRef.current.push({
-          clientId,
-          to: currentTarget,
-          ciphertext: ciphertextBase64,
-          iv: ivBase64,
           time: timeString,
-        });
+        }));
       }
       return true;
     } catch (error) {
       if (lifecycle.isActive(sessionGeneration)) {
-        outboundQueueRef.current = outboundQueueRef.current.filter(
-          (queued) => queued.clientId !== clientId,
-        );
+        outboundQueueRef.current.delete(clientId);
         setAllMessages((current) => current.map((item) => (
           item.clientId === clientId
             ? { ...item, status: 'error' }
@@ -1179,10 +1316,8 @@ export function useMessenger() {
     ) return;
 
     const clientId = window.crypto.randomUUID();
-    const timeString = new Date().toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    const createdAt = new Date().toISOString();
+    const timeString = formatMessageTime(createdAt);
     setAllMessages(prev => [...prev, {
       id: clientId,
       clientId,
@@ -1190,6 +1325,7 @@ export function useMessenger() {
       from: username,
       to: currentTarget,
       text: currentMessage,
+      createdAt,
       time: timeString,
       status: 'sending',
     }]);
@@ -1203,9 +1339,7 @@ export function useMessenger() {
     );
     if (!failedMessage || failedMessage.from !== username) return;
 
-    outboundQueueRef.current = outboundQueueRef.current.filter(
-      (queued) => queued.clientId !== failedMessage.clientId,
-    );
+    outboundQueueRef.current.delete(failedMessage.clientId);
     setAllMessages((current) => current.map((item) => (
       item.id === messageId
         ? { ...item, status: 'sending' }
@@ -1226,8 +1360,11 @@ export function useMessenger() {
     );
 
     myKeysRef.current = { publicKey: null, privateKey: null };
-    outboundQueueRef.current = [];
+    outboundQueueRef.current.clear();
     deliveryReceiptQueueRef.current.clear();
+    receivedMessageIdsRef.current.clear();
+    historyBeforeIdRef.current = null;
+    historyLoadingRef.current = false;
     userCacheRef.current = {};
     inFlightFetchesRef.current.clear();
     sessionRefreshPromiseRef.current = null;
@@ -1257,6 +1394,10 @@ export function useMessenger() {
     setPassword('');
     setConfirmPassword('');
     setAllMessages([]);
+    setUnreadCounts({});
+    setHistoryPartners([]);
+    setHistoryLoading(false);
+    setHasOlderMessages(false);
     setChatPartners([]);
     setUserCache({});
     setActiveChatUser('');
@@ -1319,6 +1460,11 @@ export function useMessenger() {
     userCache,
     message, setMessage,
     allMessages,
+    unreadCounts,
+    historyPartners,
+    historyLoading,
+    hasOlderMessages,
+    loadOlderMessages,
     wsStatus,
     isProfileOpen, setIsProfileOpen,
     searchQuery, setSearchQuery,

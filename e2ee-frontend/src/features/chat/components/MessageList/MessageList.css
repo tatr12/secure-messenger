@@ -25,3 +25,29 @@
   color: var(--color-text-muted);
   text-align: center;
 }
+
+.message-list__day {
+  display: contents;
+}
+
+.message-list__load-older {
+  align-self: center;
+  padding: 8px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.message-list__load-older:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+.message-list__load-older:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}

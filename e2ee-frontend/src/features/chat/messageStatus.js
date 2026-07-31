@@ -18,7 +18,7 @@ export function advanceMessageStatus(currentStatus, nextStatus) {
 
 export function getMessageStatusLabel(status) {
   const labels = {
-    sending: 'Отправляется',
+    sending: 'Ожидает подтверждения',
     sent: 'Сохранено сервером',
     delivered: 'Доставлено',
     read: 'Прочитано',
