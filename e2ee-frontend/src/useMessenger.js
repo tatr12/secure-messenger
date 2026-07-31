@@ -1425,7 +1425,7 @@ export function useMessenger() {
         }
 
         if (!chatPreferencesRef.current[data.from]?.muted) {
-          playNotificationSound();
+          // playNotificationSound(); // временно отключено
           showNotification(
             getMessageEventNotification(incomingEvent),
             'chat',
