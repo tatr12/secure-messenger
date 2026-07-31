@@ -1,66 +1,83 @@
-# VØIDEN Secure Messenger
+# VØIDEN Messenger
 
-Web messenger with frontend E2EE, FastAPI, PostgreSQL, Redis and WebSocket delivery.
+Private encrypted messenger MVP.
 
-## Development
+Стек:
 
-Start PostgreSQL, Redis, Mailpit and the backend:
+Backend:
+- Python
+- FastAPI
+- PostgreSQL
+- Redis
+- WebSocket
+- Alembic
 
-```bash
-docker compose up --build
-```
+Frontend:
+- React
+- Vite
+- JavaScript
 
-Start the frontend separately:
+Infrastructure:
+- Docker Compose
+- Nginx
 
-```bash
+
+## Запуск проекта
+
+
+### 1. Клонирование
+
+git clone git@github.com:tatr12/secure-messenger.git
+
+cd secure-messenger
+
+
+### 2. Создать env
+
+cp .env.example .env
+
+
+Заполнить необходимые параметры.
+
+
+### 3. Запуск backend
+
+docker compose up -d
+
+
+### 4. Frontend
+
 cd e2ee-frontend
-npm ci
+
+npm install
+
 npm run dev
-```
 
-Vite proxies HTTP API requests and `/ws` to the local backend. The browser uses
-`ws://` for local HTTP development and automatically switches to `wss://` when
-the page is served over HTTPS.
 
-## Production
+Frontend:
+http://127.0.0.1:5173
 
-The production Nginx image builds and serves the React application, proxies the
-FastAPI routes, and upgrades `/ws` connections. Port 80 only redirects to HTTPS.
 
-Before starting production Compose, create a local `.env` and set
-`TLS_CERT_PATH` and `TLS_KEY_PATH` to absolute host paths. Keep the private key
-outside this repository and never commit `.env` or certificate material. Set
-`PUBLIC_BASE_URL` and `CORS_ORIGINS` to the application's public HTTPS origin.
+Backend:
+http://127.0.0.1:8000
 
-```bash
-docker compose \
-  --env-file .env \
-  -f infra/compose/docker-compose.prod.yml \
-  -f infra/compose/docker-compose.monitoring.yml \
-  up -d --build
-```
 
-The application is then available through `https://<host>/`. Prometheus reads
-backend metrics only inside the Docker network; `make metrics` can inspect them
-without publishing `/metrics` through Nginx.
+## Важно
 
-## Sessions
+Не работать напрямую в main.
 
-VØIDEN keeps the short-lived access token only in frontend memory. A rotating
-refresh token is stored in an `HttpOnly`, `SameSite=Strict` cookie; production
-cookies are also `Secure`. PostgreSQL stores only an HMAC hash of that token.
+Создать свою ветку:
 
-Logging out or switching accounts revokes the current server session, closes
-its WebSocket and clears the in-memory E2EE key. The account menu can list real
-active sessions and revoke another device without storing multiple accounts or
-tokens in the browser.
+git checkout -b feature/my-feature
 
-The Alembic chain now supports a clean database through the `auth_sessions`
-migration. Existing installations continue to create missing tables during
-application startup for compatibility; adopting Alembic state for an existing
-database should be planned separately and must not be done by blindly running
-or stamping migrations against production data.
 
-Alembic uses the database host from `DATABASE_URL`, so migrations can run inside
-the backend container without rewriting the Compose service name to `localhost`.
-For an intentional host-side migration, set `ALEMBIC_DATABASE_URL` explicitly.
+После изменений:
+
+git add .
+
+git commit -m "description"
+
+git push origin feature/my-feature
+
+
+Далее создать Pull Request в GitHub.
