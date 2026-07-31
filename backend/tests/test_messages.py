@@ -116,15 +116,44 @@ def test_message_serialization_exposes_server_timestamps():
     assert payload["created_at"] == "2026-07-31T12:03:00+00:00"
 
 
+def test_unread_history_query_filters_incoming_non_read_rows():
+    result = SimpleNamespace(
+        scalars=lambda: SimpleNamespace(all=lambda: []),
+    )
+    database = SimpleNamespace(execute=AsyncMock(return_value=result))
+
+    asyncio.run(
+        MessageRepository(database).get_history_page(
+            "alice",
+            before_id=None,
+            limit=50,
+            unread_only=True,
+        )
+    )
+
+    statement = database.execute.await_args.args[0]
+    sql = str(statement.compile(compile_kwargs={"literal_binds": True}))
+    assert "messages.receiver = 'alice'" in sql
+    assert "messages.status != 'read'" in sql
+
+
 def test_paginated_history_returns_cursor_and_chat_metadata(monkeypatch):
     class FakeMessageRepository:
         def __init__(self, _database):
             pass
 
-        async def get_history_page(self, username, *, before_id, limit):
+        async def get_history_page(
+            self,
+            username,
+            *,
+            before_id,
+            limit,
+            unread_only,
+        ):
             assert username == "alice"
             assert before_id is None
             assert limit == 3
+            assert unread_only is False
             return [make_message(1), make_message(2), make_message(3)]
 
         async def get_unread_counts(self, username):
@@ -141,6 +170,7 @@ def test_paginated_history_returns_cursor_and_chat_metadata(monkeypatch):
         auth.get_history_page(
             before_id=None,
             limit=2,
+            unread_only=False,
             current_user=SimpleNamespace(username="alice"),
             db=object(),
         )
@@ -150,3 +180,29 @@ def test_paginated_history_returns_cursor_and_chat_metadata(monkeypatch):
     assert payload["next_before_id"] == 2
     assert payload["unread_counts"] == {"bob": 4}
     assert payload["chat_partners"] == ["bob"]
+
+
+def test_paginated_history_can_filter_unread_rows(monkeypatch):
+    repository = SimpleNamespace(
+        get_history_page=AsyncMock(return_value=[make_message(1)]),
+        get_unread_counts=AsyncMock(return_value={"bob": 1}),
+        get_chat_partners=AsyncMock(return_value=["bob"]),
+    )
+    monkeypatch.setattr(auth, "MessageRepository", lambda _database: repository)
+
+    asyncio.run(
+        auth.get_history_page(
+            before_id=10,
+            limit=50,
+            unread_only=True,
+            current_user=SimpleNamespace(username="alice"),
+            db=object(),
+        )
+    )
+
+    repository.get_history_page.assert_awaited_once_with(
+        "alice",
+        before_id=10,
+        limit=51,
+        unread_only=True,
+    )

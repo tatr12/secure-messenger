@@ -175,6 +175,7 @@ class MessageRepository:
         *,
         before_id: int | None,
         limit: int,
+        unread_only: bool = False,
     ) -> list[MessageTable]:
         stmt = select(MessageTable).where(
             or_(
@@ -184,6 +185,11 @@ class MessageRepository:
         )
         if before_id is not None:
             stmt = stmt.where(MessageTable.id < before_id)
+        if unread_only:
+            stmt = stmt.where(
+                MessageTable.receiver == username,
+                MessageTable.status != "read",
+            )
         stmt = stmt.order_by(MessageTable.id.desc()).limit(limit)
         result = await self.db.execute(stmt)
         return list(reversed(result.scalars().all()))

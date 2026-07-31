@@ -455,6 +455,7 @@ async def get_history(
 async def get_history_page(
     before_id: int | None = Query(default=None, ge=1),
     limit: int = Query(default=50, ge=1, le=100),
+    unread_only: bool = Query(default=False),
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -463,6 +464,7 @@ async def get_history_page(
         current_user.username,
         before_id=before_id,
         limit=limit + 1,
+        unread_only=unread_only,
     )
     has_more = len(messages) > limit
     if has_more:
