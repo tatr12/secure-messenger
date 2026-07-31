@@ -1,0 +1,30 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - messenger_network
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - messenger_network
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  messenger_network:
+    external: true
+    name: compose_messenger_network

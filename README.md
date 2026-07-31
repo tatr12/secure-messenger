@@ -1,28 +1,83 @@
-# 🔐 Secure Messenger
+# VØIDEN Messenger
 
-Modern End-to-End Encrypted Messenger built with FastAPI, React and Docker.
+Private encrypted messenger MVP.
 
-## Stack
+Стек:
 
-### Backend
+Backend:
 - Python
 - FastAPI
-- SQLAlchemy
 - PostgreSQL
 - Redis
+- WebSocket
+- Alembic
 
-### Frontend
+Frontend:
 - React
-- TypeScript
 - Vite
-- TailwindCSS
+- JavaScript
 
-### Infrastructure
+Infrastructure:
 - Docker Compose
-- GitHub Actions
-- Mailpit
+- Nginx
 
-## Quick Start
 
-```bash
-docker compose up --build
+## Запуск проекта
+
+
+### 1. Клонирование
+
+git clone git@github.com:tatr12/secure-messenger.git
+
+cd secure-messenger
+
+
+### 2. Создать env
+
+cp .env.example .env
+
+
+Заполнить необходимые параметры.
+
+
+### 3. Запуск backend
+
+docker compose up -d
+
+
+### 4. Frontend
+
+cd e2ee-frontend
+
+npm install
+
+npm run dev
+
+
+Frontend:
+http://127.0.0.1:5173
+
+
+Backend:
+http://127.0.0.1:8000
+
+
+## Важно
+
+Не работать напрямую в main.
+
+Создать свою ветку:
+
+git checkout -b feature/my-feature
+
+
+После изменений:
+
+git add .
+
+git commit -m "description"
+
+git push origin feature/my-feature
+
+
+Далее создать Pull Request в GitHub.

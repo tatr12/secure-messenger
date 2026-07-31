@@ -86,3 +86,12 @@ node_modules/
 
 # Local packages
 packages/
+*.bak-*
+*.before-*
+*.backup
+*.orig
+*.swp
+reset_bob_password.py
+start.txt
+/src/
+/backups/

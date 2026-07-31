@@ -1,10 +1,23 @@
-from sqlalchemy import select, or_, update
+from datetime import UTC, datetime
+
+from sqlalchemy import case, func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models import UserTable, MessageTable
-from app.schemas import RegisterSchema
+
+from app.key_envelopes import serialize_key_envelope_v2
+from app.models import (
+    AuthSessionTable,
+    ChatPreferenceTable,
+    MessageTable,
+    UserTable,
+)
+from app.schemas import KeyEnvelopeV2Schema, RegisterSchema, UpdateChatPreferenceSchema
+from app.security import hash_password
+
 
 class UserRepository:
     """Класс для изоляции SQL-запросов к таблице Пользователей"""
+
     def __init__(self, db: AsyncSession):
         self.db = db
 
@@ -18,10 +31,37 @@ class UserRepository:
         result = await self.db.execute(stmt)
         return result.scalars().first()
 
+    async def get_by_id(self, user_id: int) -> UserTable:
+        stmt = select(UserTable).where(UserTable.id == user_id)
+        result = await self.db.execute(stmt)
+        return result.scalars().first()
+
     async def create_user(self, data: RegisterSchema) -> UserTable:
-        new_user = UserTable(**data.model_dump())
+        user_data = data.model_dump(
+            exclude={
+                "password",
+                "key_envelope",
+                "encrypted_private_key",
+                "private_key_iv",
+            }
+        )
+        if data.key_envelope:
+            encrypted_private_key, private_key_iv = serialize_key_envelope_v2(
+                data.key_envelope
+            )
+        else:
+            encrypted_private_key = data.encrypted_private_key
+            private_key_iv = data.private_key_iv
+
+        new_user = UserTable(
+            **user_data,
+            encrypted_private_key=encrypted_private_key,
+            private_key_iv=private_key_iv,
+            password_hash=hash_password(data.password),
+        )
         self.db.add(new_user)
         await self.db.commit()
+        await self.db.refresh(new_user)
         return new_user
 
     async def verify_user(self, username: str) -> UserTable:
@@ -31,13 +71,31 @@ class UserRepository:
             await self.db.commit()
         return db_user
 
+    async def update_key_envelope(
+        self,
+        user: UserTable,
+        envelope: KeyEnvelopeV2Schema,
+    ) -> UserTable:
+        encrypted_private_key, private_key_iv = serialize_key_envelope_v2(envelope)
+        user.encrypted_private_key = encrypted_private_key
+        user.private_key_iv = private_key_iv
+        await self.db.commit()
+        await self.db.refresh(user)
+        return user
+
     async def search_users(self, query: str, exclude: str) -> list[UserTable]:
         q_filter = f"%{query.lower()}%"
-        stmt = select(UserTable).where(UserTable.username.like(q_filter), UserTable.username != exclude).limit(5)
+        stmt = (
+            select(UserTable)
+            .where(UserTable.username.ilike(q_filter), UserTable.username != exclude)
+            .limit(5)
+        )
         result = await self.db.execute(stmt)
         return result.scalars().all()
-    
-    async def update_user_profile(self, username: str, display_name: str, bio: str) -> UserTable:
+
+    async def update_user_profile(
+        self, username: str, display_name: str, bio: str
+    ) -> UserTable:
         db_user = await self.get_by_username(username)
         if db_user:
             db_user.display_name = display_name
@@ -48,6 +106,7 @@ class UserRepository:
 
 class MessageRepository:
     """Класс для работы с сообщениями в Postgres"""
+
     def __init__(self, db: AsyncSession):
         self.db = db
 
@@ -57,17 +116,305 @@ class MessageRepository:
         await self.db.refresh(data)
         return data
 
-    async def get_history(self, username: str) -> list[MessageTable]:
+    async def get_by_client_message_id(
+        self,
+        sender: str,
+        client_message_id: str,
+    ) -> MessageTable | None:
         stmt = select(MessageTable).where(
-            or_(MessageTable.sender == username, MessageTable.receiver == username)
-        ).order_by(MessageTable.created_at.asc())
+            MessageTable.sender == sender,
+            MessageTable.client_message_id == client_message_id,
+        )
+        result = await self.db.execute(stmt)
+        return result.scalars().first()
+
+    async def save_message_idempotent(
+        self,
+        data: MessageTable,
+    ) -> tuple[MessageTable, bool]:
+        if not data.client_message_id:
+            return await self.save_message(data), True
+
+        existing = await self.get_by_client_message_id(
+            data.sender,
+            data.client_message_id,
+        )
+        if existing is not None:
+            return existing, False
+
+        self.db.add(data)
+        try:
+            await self.db.commit()
+        except IntegrityError:
+            await self.db.rollback()
+            existing = await self.get_by_client_message_id(
+                data.sender,
+                data.client_message_id,
+            )
+            if existing is None:
+                raise
+            return existing, False
+
+        await self.db.refresh(data)
+        return data, True
+
+    async def get_history(self, username: str) -> list[MessageTable]:
+        stmt = (
+            select(MessageTable)
+            .where(
+                or_(MessageTable.sender == username, MessageTable.receiver == username)
+            )
+            .order_by(MessageTable.created_at.asc())
+        )
         result = await self.db.execute(stmt)
         return result.scalars().all()
 
-    async def mark_as_read(self, sender: str, receiver: str):
-        stmt = update(MessageTable).where(
-            MessageTable.sender == sender, 
-            MessageTable.receiver == receiver
-        ).values(status="read")
+    async def get_history_page(
+        self,
+        username: str,
+        *,
+        before_id: int | None,
+        limit: int,
+        unread_only: bool = False,
+    ) -> list[MessageTable]:
+        stmt = select(MessageTable).where(
+            or_(
+                MessageTable.sender == username,
+                MessageTable.receiver == username,
+            )
+        )
+        if before_id is not None:
+            stmt = stmt.where(MessageTable.id < before_id)
+        if unread_only:
+            stmt = stmt.where(
+                MessageTable.receiver == username,
+                MessageTable.status != "read",
+            )
+        stmt = stmt.order_by(MessageTable.id.desc()).limit(limit)
+        result = await self.db.execute(stmt)
+        return list(reversed(result.scalars().all()))
+
+    async def get_unread_counts(self, username: str) -> dict[str, int]:
+        stmt = (
+            select(MessageTable.sender, func.count(MessageTable.id))
+            .where(
+                MessageTable.receiver == username,
+                MessageTable.status != "read",
+            )
+            .group_by(MessageTable.sender)
+        )
+        result = await self.db.execute(stmt)
+        return {sender: count for sender, count in result.all()}
+
+    async def get_chat_partners(self, username: str) -> list[str]:
+        partner = case(
+            (MessageTable.sender == username, MessageTable.receiver),
+            else_=MessageTable.sender,
+        )
+        stmt = (
+            select(partner.label("partner"))
+            .where(
+                or_(
+                    MessageTable.sender == username,
+                    MessageTable.receiver == username,
+                )
+            )
+            .distinct()
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def mark_as_read(self, sender: str, receiver: str) -> datetime:
+        read_at = datetime.now(UTC).replace(tzinfo=None)
+        stmt = (
+            update(MessageTable)
+            .where(
+                MessageTable.sender == sender,
+                MessageTable.receiver == receiver,
+                MessageTable.status != "read",
+            )
+            .values(status="read", read_at=read_at)
+        )
         await self.db.execute(stmt)
         await self.db.commit()
+        return read_at
+
+    async def mark_as_delivered(
+        self, message_id: int, receiver: str
+    ) -> MessageTable | None:
+        message = await self.db.get(MessageTable, message_id)
+        if message is None or message.receiver != receiver:
+            return None
+
+        if message.status == "sent":
+            message.status = "delivered"
+            message.delivered_at = datetime.now(UTC).replace(tzinfo=None)
+            await self.db.commit()
+
+        return message
+
+
+class ChatPreferenceRepository:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def list_for_user(
+        self,
+        user_id: int,
+    ) -> list[tuple[ChatPreferenceTable, str]]:
+        stmt = (
+            select(ChatPreferenceTable, UserTable.username)
+            .join(UserTable, UserTable.id == ChatPreferenceTable.partner_id)
+            .where(ChatPreferenceTable.user_id == user_id)
+            .order_by(ChatPreferenceTable.updated_at.desc())
+        )
+        result = await self.db.execute(stmt)
+        return list(result.all())
+
+    async def get_for_pair(
+        self,
+        user_id: int,
+        partner_id: int,
+    ) -> ChatPreferenceTable | None:
+        stmt = select(ChatPreferenceTable).where(
+            ChatPreferenceTable.user_id == user_id,
+            ChatPreferenceTable.partner_id == partner_id,
+        )
+        result = await self.db.execute(stmt)
+        return result.scalars().first()
+
+    async def upsert(
+        self,
+        *,
+        user_id: int,
+        partner_id: int,
+        update_data: UpdateChatPreferenceSchema,
+    ) -> ChatPreferenceTable:
+        preference = await self.get_for_pair(user_id, partner_id)
+        if preference is None:
+            preference = ChatPreferenceTable(
+                user_id=user_id,
+                partner_id=partner_id,
+            )
+            self.db.add(preference)
+
+        for field_name, value in update_data.model_dump(exclude_none=True).items():
+            setattr(preference, field_name, value)
+
+        await self.db.commit()
+        await self.db.refresh(preference)
+        return preference
+
+
+class SessionRepository:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def create_session(
+        self,
+        *,
+        user_id: int,
+        refresh_token_hash: str,
+        expires_at: datetime,
+        user_agent: str | None,
+        ip_address: str | None,
+    ) -> AuthSessionTable:
+        session = AuthSessionTable(
+            user_id=user_id,
+            refresh_token_hash=refresh_token_hash,
+            expires_at=expires_at,
+            user_agent=user_agent,
+            ip_address=ip_address,
+        )
+        self.db.add(session)
+        await self.db.commit()
+        await self.db.refresh(session)
+        return session
+
+    async def get_active_by_id(
+        self,
+        session_id: str,
+        *,
+        user_id: int | None = None,
+    ) -> AuthSessionTable | None:
+        now = datetime.now(UTC)
+        stmt = select(AuthSessionTable).where(
+            AuthSessionTable.id == session_id,
+            AuthSessionTable.revoked_at.is_(None),
+            AuthSessionTable.expires_at > now,
+        )
+        if user_id is not None:
+            stmt = stmt.where(AuthSessionTable.user_id == user_id)
+        result = await self.db.execute(stmt)
+        return result.scalars().first()
+
+    async def get_by_refresh_hash_for_update(
+        self,
+        refresh_token_hash: str,
+    ) -> AuthSessionTable | None:
+        stmt = (
+            select(AuthSessionTable)
+            .where(AuthSessionTable.refresh_token_hash == refresh_token_hash)
+            .with_for_update()
+        )
+        result = await self.db.execute(stmt)
+        return result.scalars().first()
+
+    async def rotate_refresh_token(
+        self,
+        session: AuthSessionTable,
+        refresh_token_hash: str,
+    ) -> AuthSessionTable:
+        session.refresh_token_hash = refresh_token_hash
+        session.last_used_at = datetime.now(UTC)
+        await self.db.commit()
+        await self.db.refresh(session)
+        return session
+
+    async def revoke_session(self, session: AuthSessionTable) -> str:
+        if session.revoked_at is None:
+            session.revoked_at = datetime.now(UTC)
+        await self.db.commit()
+        return session.id
+
+    async def revoke_by_refresh_hash(
+        self,
+        refresh_token_hash: str,
+    ) -> str | None:
+        session = await self.get_by_refresh_hash_for_update(refresh_token_hash)
+        if session is None:
+            return None
+        return await self.revoke_session(session)
+
+    async def revoke_by_id_for_user(
+        self,
+        session_id: str,
+        user_id: int,
+    ) -> str | None:
+        stmt = (
+            select(AuthSessionTable)
+            .where(
+                AuthSessionTable.id == session_id,
+                AuthSessionTable.user_id == user_id,
+            )
+            .with_for_update()
+        )
+        result = await self.db.execute(stmt)
+        session = result.scalars().first()
+        if session is None:
+            return None
+        return await self.revoke_session(session)
+
+    async def list_active(self, user_id: int) -> list[AuthSessionTable]:
+        now = datetime.now(UTC)
+        stmt = (
+            select(AuthSessionTable)
+            .where(
+                AuthSessionTable.user_id == user_id,
+                AuthSessionTable.revoked_at.is_(None),
+                AuthSessionTable.expires_at > now,
+            )
+            .order_by(AuthSessionTable.last_used_at.desc())
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())

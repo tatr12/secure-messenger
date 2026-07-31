@@ -1,11 +1,45 @@
-import os
-from pydantic_settings import BaseSettings
+from urllib.parse import urlparse
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def as_sync_database_url(database_url: str) -> str:
+    return database_url.replace(
+        "postgresql+asyncpg://",
+        "postgresql+psycopg://",
+        1,
+    )
+
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:password@localhost:5432/messenger_db")
-    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    SMTP_HOST: str = os.getenv("SMTP_HOST", "mailpit")
-    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "1025"))
-    SMTP_FROM: str = os.getenv("SMTP_FROM", "noreply@messenger.local")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+    )
+
+    DATABASE_URL: str
+    REDIS_URL: str
+
+    SMTP_HOST: str = "mailpit"
+    SMTP_PORT: int = 1025
+    SMTP_FROM: str = "noreply@messenger.local"
+    PUBLIC_BASE_URL: str = "http://127.0.0.1:5173"
+
+    JWT_SECRET_KEY: str
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    SESSION_COOKIE_NAME: str = "voiden_refresh"
+    CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+
+    @property
+    def cors_origins(self) -> list[str]:
+        origins = (origin.strip() for origin in self.CORS_ORIGINS.split(","))
+        return [origin for origin in origins if origin]
+
+    @property
+    def refresh_cookie_secure(self) -> bool:
+        return urlparse(self.PUBLIC_BASE_URL).scheme == "https"
+
 
 settings = Settings()

@@ -3,10 +3,13 @@ import json
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from prometheus_fastapi_instrumentator import Instrumentator
 
+from app.config import settings
 from app.database import engine, Base, redis_mgr
 from app.services import socket_manager
-from app.routers import auth, websocket
+from app.routers import auth, chat_preferences, websocket
+
 
 # Фоновый слушатель Pub/Sub Redis (перенесен в глобальный цикл)
 async def redis_pubsub_listener():
@@ -22,6 +25,7 @@ async def redis_pubsub_listener():
     except Exception:
         pass
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Ожидание Postgres и накат таблиц
@@ -36,20 +40,29 @@ async def lifespan(app: FastAPI):
             retries -= 1
             print(f"⏳ [SYSTEM] База данных еще не готова... Попыток: {retries}")
             await asyncio.sleep(2)
-            
+
     # Запуск Redis
     redis_mgr.connect()
     pubsub_task = asyncio.create_task(redis_mgr.subscribe_and_route())
-    
+
     print("🤖 [SYSTEM] Архитектура бэкенда успешно развернута.")
     yield
     pubsub_task.cancel()
 
+
 app = FastAPI(lifespan=lifespan)
+
+Instrumentator().instrument(app).expose(app)
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -57,8 +70,10 @@ app.add_middleware(
 
 # Подключаем наши чистые роутеры
 app.include_router(auth.router)
+app.include_router(chat_preferences.router)
 app.include_router(websocket.router)
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)

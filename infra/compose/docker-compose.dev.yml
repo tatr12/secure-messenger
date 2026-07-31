@@ -1,0 +1,74 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: messenger_redis
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5 
+    ports:
+      - "6379:6379"
+    networks:
+      - messenger_network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: messenger_postgres
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - messenger_network
+
+  backend:
+    build: .
+    container_name: messenger_backend
+    restart: always
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+    depends_on:
+      - postgres
+      - redis
+      - mailpit
+    networks:
+      - messenger_network
+
+  mailpit:
+    image: axllent/mailpit
+    container_name: messenger_mailpit
+    restart: always
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - messenger_network
+
+volumes:
+  postgres_data:
+
+networks:
+  messenger_network:
+    driver: bridge

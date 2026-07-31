@@ -1,0 +1,21 @@
+.day-separator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+
+  margin: var(--space-4) 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.day-separator::before,
+.day-separator::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.day-separator span {
+  padding: 0 var(--space-2);
+}

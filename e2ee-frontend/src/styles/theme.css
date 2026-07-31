@@ -1,0 +1,94 @@
+:root {
+  /* Backgrounds */
+  --color-bg: #eef0f3;
+  --color-bg-soft: #f5f6f8;
+
+  /* Surfaces */
+  --color-surface: #ffffff;
+  --color-surface-soft: #f8f8fa;
+  --color-surface-muted: #f1f2f4;
+  --color-surface-hover: #f4f4f6;
+
+  /* Borders */
+  --color-border: #e3e4e7;
+  --color-border-strong: #cfd1d6;
+
+  /* Text */
+  --color-text: #1b1b1d;
+  --color-text-secondary: #7f8087;
+  --color-text-muted: #a0a1a7;
+  --color-text-inverse: #ffffff;
+
+  /* Accent */
+  --color-accent: #1b1b1d;
+  --color-accent-hover: #2a2a2d;
+
+  /* Status */
+  --color-success: #34c759;
+  --color-danger: #d94a43;
+  --color-warning: #e8a317;
+
+  /* Typography */
+  --font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Display",
+    "SF Pro Text",
+    "Segoe UI",
+    sans-serif;
+
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-md: 15px;
+  --font-size-lg: 18px;
+  --font-size-xl: 28px;
+  --font-size-2xl: 40px;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* Radius */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-full: 999px;
+
+  /* Shadows */
+  --shadow-sm: 0 6px 18px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 24px 70px rgba(0, 0, 0, 0.12);
+
+  /* Motion */
+  --transition-fast: 140ms ease;
+  --transition-base: 180ms ease;
+  --transition-slow: 260ms ease;
+
+/* Layout */
+
+--sidebar-width: 76px;
+--chatlist-width: 330px;
+
+--content-padding: 32px;
+
+--topbar-height: 76px;
+
+--composer-height: 82px;
+
+--message-width: 460px;
+
+/* Radius */
+
+--radius-sm: 10px;
+--radius-md: 14px;
+--radius-lg: 18px;
+--radius-xl: 24px;
+--radius-message: 18px;
+
+}
