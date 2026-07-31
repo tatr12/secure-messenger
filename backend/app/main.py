@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from app.database import engine, Base, redis_mgr
 from app.services import socket_manager
-from app.routers import auth, websocket
+from app.routers import auth, chat_preferences, websocket
 
 
 # Фоновый слушатель Pub/Sub Redis (перенесен в глобальный цикл)
@@ -60,6 +60,7 @@ app.add_middleware(
 
 # Подключаем наши чистые роутеры
 app.include_router(auth.router)
+app.include_router(chat_preferences.router)
 app.include_router(websocket.router)
 
 if __name__ == "__main__":

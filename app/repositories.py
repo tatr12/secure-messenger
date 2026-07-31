@@ -5,8 +5,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.key_envelopes import serialize_key_envelope_v2
-from app.models import AuthSessionTable, MessageTable, UserTable
-from app.schemas import KeyEnvelopeV2Schema, RegisterSchema
+from app.models import (
+    AuthSessionTable,
+    ChatPreferenceTable,
+    MessageTable,
+    UserTable,
+)
+from app.schemas import KeyEnvelopeV2Schema, RegisterSchema, UpdateChatPreferenceSchema
 from app.security import hash_password
 
 
@@ -241,6 +246,58 @@ class MessageRepository:
             await self.db.commit()
 
         return message
+
+
+class ChatPreferenceRepository:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def list_for_user(
+        self,
+        user_id: int,
+    ) -> list[tuple[ChatPreferenceTable, str]]:
+        stmt = (
+            select(ChatPreferenceTable, UserTable.username)
+            .join(UserTable, UserTable.id == ChatPreferenceTable.partner_id)
+            .where(ChatPreferenceTable.user_id == user_id)
+            .order_by(ChatPreferenceTable.updated_at.desc())
+        )
+        result = await self.db.execute(stmt)
+        return list(result.all())
+
+    async def get_for_pair(
+        self,
+        user_id: int,
+        partner_id: int,
+    ) -> ChatPreferenceTable | None:
+        stmt = select(ChatPreferenceTable).where(
+            ChatPreferenceTable.user_id == user_id,
+            ChatPreferenceTable.partner_id == partner_id,
+        )
+        result = await self.db.execute(stmt)
+        return result.scalars().first()
+
+    async def upsert(
+        self,
+        *,
+        user_id: int,
+        partner_id: int,
+        update_data: UpdateChatPreferenceSchema,
+    ) -> ChatPreferenceTable:
+        preference = await self.get_for_pair(user_id, partner_id)
+        if preference is None:
+            preference = ChatPreferenceTable(
+                user_id=user_id,
+                partner_id=partner_id,
+            )
+            self.db.add(preference)
+
+        for field_name, value in update_data.model_dump(exclude_none=True).items():
+            setattr(preference, field_name, value)
+
+        await self.db.commit()
+        await self.db.refresh(preference)
+        return preference
 
 
 class SessionRepository:

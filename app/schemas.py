@@ -134,3 +134,26 @@ class SessionResponseSchema(BaseModel):
     created_at: datetime
     last_used_at: datetime
     expires_at: datetime
+
+
+class UpdateChatPreferenceSchema(BaseModel):
+    is_pinned: bool | None = None
+    is_muted: bool | None = None
+    is_archived: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_update(self):
+        if all(
+            getattr(self, field_name) is None
+            for field_name in ("is_pinned", "is_muted", "is_archived")
+        ):
+            raise ValueError("at least one chat preference is required")
+        return self
+
+
+class ChatPreferenceResponseSchema(BaseModel):
+    partner: str
+    is_pinned: bool
+    is_muted: bool
+    is_archived: bool
+    updated_at: datetime
