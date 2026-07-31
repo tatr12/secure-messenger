@@ -101,7 +101,34 @@ async def websocket_endpoint(
                         "to": sender_of_msg,
                     }
                     await redis_mgr.publish_message("messenger_routing", receipt_packet)
+                elif data.get("type") == "delivery_receipt":
+                    message_id = data.get("message_id")
+                    if not isinstance(message_id, int):
+                        logger.warning(f"[{username}] invalid delivery receipt")
+                        continue
+
+                    delivered_message = await repo.mark_as_delivered(
+                        message_id=message_id,
+                        receiver=username,
+                    )
+                    if delivered_message is None:
+                        logger.warning(
+                            f"[{username}] delivery receipt does not match message"
+                        )
+                        continue
+
+                    delivery_packet = {
+                        "type": "delivery_receipt_update",
+                        "message_id": delivered_message.id,
+                        "client_id": data.get("client_id"),
+                        "recipient": username,
+                        "to": delivered_message.sender,
+                    }
+                    await redis_mgr.publish_message(
+                        "messenger_routing", delivery_packet
+                    )
                 else:
+                    client_id = data.get("client_id", data.get("id"))
                     db_msg = MessageTable(
                         sender=username,
                         receiver=data.get("to"),
@@ -120,7 +147,19 @@ async def websocket_endpoint(
                         "iv": db_msg.iv,
                         "time": db_msg.time_str,
                         "status": "sent",
+                        "client_id": client_id,
                     }
+                    try:
+                        await websocket.send_json(
+                            {
+                                "type": "message_ack",
+                                "client_id": client_id,
+                                "message_id": db_msg.id,
+                                "status": "sent",
+                            }
+                        )
+                    except Exception as error:
+                        logger.warning(f"[{username}] message ack failed: {error}")
                     await redis_mgr.publish_message("messenger_routing", packet)
 
             except WebSocketDisconnect:

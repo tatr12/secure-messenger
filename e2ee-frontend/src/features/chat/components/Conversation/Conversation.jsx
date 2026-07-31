@@ -18,6 +18,7 @@ export default function Conversation({
   username,
   onOpenProfile,
   onUnavailableAction,
+  onRetryMessage,
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [messageSearch, setMessageSearch] = useState('');
@@ -81,6 +82,7 @@ export default function Conversation({
         emptyMessage={
           messageSearch.trim() ? 'Совпадений не найдено' : 'Нет сообщений'
         }
+        onRetryMessage={onRetryMessage}
       />
 
       <Composer onSend={sendMessage} />

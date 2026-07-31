@@ -35,6 +35,10 @@
   color: var(--color-text-inverse);
 }
 
+.message-card.is-mine.has-error {
+  background: #3a2c2d;
+}
+
 .message-card__text {
   margin: 0;
 
@@ -64,6 +68,31 @@
 
 .message-card.is-mine .message-card__meta {
   color: rgba(255, 255, 255, 0.58);
+}
+
+.message-status {
+  min-width: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.message-status--read {
+  color: #b6f0ff;
+}
+
+.message-status--retry {
+  padding: 0;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: #ffd2d2;
+  font: inherit;
+  cursor: pointer;
+}
+
+.message-status--retry:hover {
+  color: #ffffff;
 }
 
 @keyframes message-card-enter {

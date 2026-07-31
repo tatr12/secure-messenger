@@ -9,6 +9,7 @@ export default function MessageList({
   username,
   highlightQuery = '',
   emptyMessage = 'Нет сообщений',
+  onRetryMessage,
 }) {
   const listRef = useRef(null);
 
@@ -36,6 +37,7 @@ export default function MessageList({
             edited={message.edited}
             deleted={message.deleted}
             highlightQuery={highlightQuery}
+            onRetry={() => onRetryMessage?.(message.id)}
           />
         ))
       )}

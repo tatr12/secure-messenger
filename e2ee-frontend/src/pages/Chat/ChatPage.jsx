@@ -209,6 +209,7 @@ export default function ChatPage({ messenger }) {
           sendMessage={(text) => {
             messenger.sendMessage(messenger.activeChatUser, text);
           }}
+          onRetryMessage={messenger.retryMessage}
         />
       ) : (
         <div className="empty-chat">

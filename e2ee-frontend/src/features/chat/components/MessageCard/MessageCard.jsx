@@ -1,3 +1,6 @@
+import { Check, CheckCheck, Clock3, RotateCcw } from 'lucide-react';
+import { getMessageStatusLabel } from '../../messageStatus';
+
 import './MessageCard.css';
 
 function highlightText(text, query) {
@@ -35,9 +38,18 @@ export default function MessageCard({
   isMine = false,
   status = "",
   highlightQuery = '',
+  onRetry,
 }) {
+  const statusLabel = getMessageStatusLabel(status);
+  const statusIcon = {
+    sending: <Clock3 size={13} />,
+    sent: <Check size={14} />,
+    delivered: <CheckCheck size={14} />,
+    read: <CheckCheck size={14} />,
+  }[status];
+
   return (
-    <article className={`message-card ${isMine ? 'is-mine' : ''}`}>
+    <article className={`message-card ${isMine ? 'is-mine' : ''} ${status === 'error' ? 'has-error' : ''}`}>
       <p className="message-card__text">
         {highlightText(text, highlightQuery)}
       </p>
@@ -46,9 +58,26 @@ export default function MessageCard({
         <time>{time}</time>
 
         {isMine && (
-          <span className="message-status">
-            {status === 'read' ? '✓✓' : '✓'}
-          </span>
+          status === 'error' ? (
+            <button
+              className="message-status message-status--retry"
+              type="button"
+              title="Повторить отправку"
+              aria-label="Повторить отправку сообщения"
+              onClick={onRetry}
+            >
+              <RotateCcw size={13} />
+              Повторить
+            </button>
+          ) : (
+            <span
+              className={`message-status message-status--${status}`}
+              title={statusLabel}
+              aria-label={statusLabel}
+            >
+              {statusIcon}
+            </span>
+          )
         )}
       </div>
     </article>

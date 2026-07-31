@@ -17,6 +17,7 @@ import {
 } from './sessionApi';
 import { updateProfile } from './profileApi';
 import { buildWebSocketProtocols, buildWebSocketUrl } from './websocketUrl';
+import { advanceMessageStatus } from './features/chat/messageStatus';
 
 // Укажи путь к звуковому файлу (из папки public или внешний URL)
 const NOTIFICATION_SOUND_URL = '/audio_2026-06-13_23-53-24.mp3';
@@ -49,6 +50,7 @@ export function useMessenger() {
   const [toasts, setToasts] = useState([]);
 
   const outboundQueueRef = useRef([]);
+  const deliveryReceiptQueueRef = useRef(new Map());
   const myKeysRef = useRef({ publicKey: null, privateKey: null });
   const sessionTokenRef = useRef(null);
   const sessionRefreshPromiseRef = useRef(null);
@@ -93,6 +95,7 @@ export function useMessenger() {
     const generation = sessionLifecycleRef.current.begin();
     closeCurrentWebSocket('Starting a new session');
     outboundQueueRef.current = [];
+    deliveryReceiptQueueRef.current.clear();
     setWsStatus('offline');
     return generation;
   };
@@ -183,10 +186,13 @@ export function useMessenger() {
   }, []);
 
   useEffect(() => {
+    const deliveryReceiptQueue = deliveryReceiptQueueRef.current;
+
     return () => {
       sessionLifecycleRef.current.end();
       closeCurrentWebSocket('Application unmounted');
       outboundQueueRef.current = [];
+      deliveryReceiptQueue.clear();
       myKeysRef.current = { publicKey: null, privateKey: null };
       sessionTokenRef.current = null;
       sessionRefreshPromiseRef.current = null;
@@ -460,7 +466,11 @@ export function useMessenger() {
       wsRef.current?.readyState === WebSocket.OPEN
     ) {
       wsRef.current.send(JSON.stringify({ type: "read_receipt", sender: senderUsername }));
-      setAllMessages(prev => prev.map(m => m.from === senderUsername ? { ...m, status: 'read' } : m));
+      setAllMessages(prev => prev.map(m => (
+        m.from === senderUsername && m.to === username
+          ? { ...m, status: advanceMessageStatus(m.status, 'read') }
+          : m
+      )));
     }
   }
 
@@ -535,6 +545,8 @@ export function useMessenger() {
 
           decryptedMessages.push({
             id: msg.id || crypto.randomUUID(),
+            serverId: msg.id,
+            clientId: null,
             from: msg.from,
             to: msg.to,
             text: decryptedText,
@@ -542,6 +554,10 @@ export function useMessenger() {
             status: msg.status || "sent",
             isMine: msg.from === currentUsername
           });
+
+          if (msg.from !== currentUsername && msg.status === 'sent') {
+            deliveryReceiptQueueRef.current.set(msg.id, null);
+          }
         } catch (decryptError) {
           console.error(
             `[History] Не удалось расшифровать сообщение ${msg.id}:`,
@@ -850,13 +866,37 @@ export function useMessenger() {
       for (const queued of queuedMessages) {
         if (!isCurrentSocket()) return;
 
-        ws.send(JSON.stringify({
-          id: queued.msgId,
-          to: queued.to,
-          ciphertext: queued.ciphertext,
-          iv: queued.iv,
-          time: queued.time
-        }));
+        try {
+          ws.send(JSON.stringify({
+            client_id: queued.clientId,
+            to: queued.to,
+            ciphertext: queued.ciphertext,
+            iv: queued.iv,
+            time: queued.time
+          }));
+        } catch (error) {
+          console.error('[WS] Не удалось отправить сообщение из очереди', error);
+          setAllMessages((current) => current.map((item) => (
+            item.clientId === queued.clientId
+              ? { ...item, status: 'error' }
+              : item
+          )));
+        }
+      }
+
+      for (const [messageId, clientId] of deliveryReceiptQueueRef.current) {
+        if (!isCurrentSocket()) return;
+        try {
+          ws.send(JSON.stringify({
+            type: 'delivery_receipt',
+            message_id: messageId,
+            client_id: clientId,
+          }));
+          deliveryReceiptQueueRef.current.delete(messageId);
+        } catch (error) {
+          console.warn('[WS] Подтверждение доставки осталось в очереди', error);
+          return;
+        }
       }
     };
 
@@ -895,7 +935,40 @@ export function useMessenger() {
 
       if (data.type === "read_receipt_update") {
         if (!isCurrentSocket()) return;
-        setAllMessages(prev => prev.map(m => m.to === data.reader ? { ...m, status: 'read' } : m));
+        setAllMessages(prev => prev.map(m => (
+          m.from === user && m.to === data.reader
+            ? { ...m, status: advanceMessageStatus(m.status, 'read') }
+            : m
+        )));
+        return;
+      }
+
+      if (data.type === 'message_ack') {
+        setAllMessages((current) => current.map((item) => (
+          item.clientId === data.client_id
+            ? {
+                ...item,
+                serverId: data.message_id,
+                status: advanceMessageStatus(item.status, 'sent'),
+              }
+            : item
+        )));
+        return;
+      }
+
+      if (data.type === 'delivery_receipt_update') {
+        setAllMessages((current) => current.map((item) => {
+          const matchesServerId = item.serverId === data.message_id;
+          const matchesClientId = data.client_id != null &&
+            item.clientId === data.client_id;
+          if (!matchesServerId && !matchesClientId) return item;
+
+          return {
+            ...item,
+            serverId: data.message_id,
+            status: advanceMessageStatus(item.status, 'delivered'),
+          };
+        }));
         return;
       }
 
@@ -953,6 +1026,8 @@ export function useMessenger() {
         setChatPartners(prev => prev.includes(data.from) ? prev : [...prev, data.from]);
         setAllMessages(prev => [...prev, {
           id: data.id,
+          serverId: data.id,
+          clientId: data.client_id ?? null,
           from: data.from,
           to: user,
           type: "text",
@@ -968,6 +1043,20 @@ export function useMessenger() {
           time: data.time,
           status: "delivered"
         }]);
+
+        try {
+          ws.send(JSON.stringify({
+            type: 'delivery_receipt',
+            message_id: data.id,
+            client_id: data.client_id ?? null,
+          }));
+        } catch (receiptError) {
+          deliveryReceiptQueueRef.current.set(
+            data.id,
+            data.client_id ?? null,
+          );
+          console.warn('[WS] Подтверждение доставки поставлено в очередь', receiptError);
+        }
 
         playNotificationSound();
         showNotification(text, 'chat', senderName);
@@ -989,35 +1078,23 @@ export function useMessenger() {
     };
   }
 
-  async function sendMessage(currentTarget, textOverride = null) {
-    const currentMessage = textOverride ?? message;
-    if (!currentTarget || !currentMessage.trim()) return;
-
+  async function transmitMessage(clientId, currentTarget, msgText, timeString) {
     const lifecycle = sessionLifecycleRef.current;
     const sessionGeneration = lifecycle.currentGeneration();
     const privateKey = myKeysRef.current.privateKey;
 
-    if (!lifecycle.isActive(sessionGeneration) || !privateKey) return;
+    if (!lifecycle.isActive(sessionGeneration) || !privateKey) return false;
 
-    const msgId = Math.random();
-    const timeString = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    setAllMessages(prev => [...prev, {
-      id: msgId, from: username, to: currentTarget,
-      text: currentMessage, time: timeString,
-      status: wsStatus === 'online' ? 'sent' : 'pending'
-    }]);
-    const msgText = currentMessage;
-    setMessage('');
     try {
       const res = await fetch(`/user/${currentTarget}`);
-      if (!lifecycle.isActive(sessionGeneration)) return;
+      if (!lifecycle.isActive(sessionGeneration)) return false;
 
       if (!res.ok) {
         throw new Error(`Не удалось получить пользователя: HTTP ${res.status}`);
       }
 
       const targetData = await res.json();
-      if (!lifecycle.isActive(sessionGeneration)) return;
+      if (!lifecycle.isActive(sessionGeneration)) return false;
 
       if (!targetData.public_key) {
         throw new Error("У получателя отсутствует public_key");
@@ -1047,12 +1124,12 @@ export function useMessenger() {
       const ciphertextBase64 = arrayBufferToBase64(ciphertextRaw);
       const ivBase64 = arrayBufferToBase64(iv);
 
-      if (!lifecycle.isActive(sessionGeneration)) return;
+      if (!lifecycle.isActive(sessionGeneration)) return false;
 
       const currentWebSocket = wsRef.current;
       if (currentWebSocket?.readyState === WebSocket.OPEN) {
         const packet = {
-          id: msgId,
+          client_id: clientId,
           to: currentTarget,
           ciphertext: ciphertextBase64,
           iv: ivBase64,
@@ -1061,13 +1138,85 @@ export function useMessenger() {
 
         currentWebSocket.send(JSON.stringify(packet));
       } else {
-        outboundQueueRef.current.push({ msgId, to: currentTarget, ciphertext: ciphertextBase64, iv: ivBase64, time: timeString });
+        outboundQueueRef.current.push({
+          clientId,
+          to: currentTarget,
+          ciphertext: ciphertextBase64,
+          iv: ivBase64,
+          time: timeString,
+        });
       }
+      return true;
     } catch (error) {
       if (lifecycle.isActive(sessionGeneration)) {
-        console.error('[sendMessage] Ошибка шифрования:', error);
+        outboundQueueRef.current = outboundQueueRef.current.filter(
+          (queued) => queued.clientId !== clientId,
+        );
+        setAllMessages((current) => current.map((item) => (
+          item.clientId === clientId
+            ? { ...item, status: 'error' }
+            : item
+        )));
+        console.error('[sendMessage] Сообщение не отправлено:', error);
+        showNotification(
+          'Сообщение не отправлено. Можно повторить безопасно.',
+          'error',
+        );
       }
+      return false;
     }
+  }
+
+  function sendMessage(currentTarget, textOverride = null) {
+    const currentMessage = textOverride ?? message;
+    if (!currentTarget || !currentMessage.trim()) return;
+
+    const lifecycle = sessionLifecycleRef.current;
+    const sessionGeneration = lifecycle.currentGeneration();
+    if (
+      !lifecycle.isActive(sessionGeneration) ||
+      !myKeysRef.current.privateKey
+    ) return;
+
+    const clientId = window.crypto.randomUUID();
+    const timeString = new Date().toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    setAllMessages(prev => [...prev, {
+      id: clientId,
+      clientId,
+      serverId: null,
+      from: username,
+      to: currentTarget,
+      text: currentMessage,
+      time: timeString,
+      status: 'sending',
+    }]);
+    setMessage('');
+    void transmitMessage(clientId, currentTarget, currentMessage, timeString);
+  }
+
+  function retryMessage(messageId) {
+    const failedMessage = allMessages.find(
+      (item) => item.id === messageId && item.status === 'error',
+    );
+    if (!failedMessage || failedMessage.from !== username) return;
+
+    outboundQueueRef.current = outboundQueueRef.current.filter(
+      (queued) => queued.clientId !== failedMessage.clientId,
+    );
+    setAllMessages((current) => current.map((item) => (
+      item.id === messageId
+        ? { ...item, status: 'sending' }
+        : item
+    )));
+    void transmitMessage(
+      failedMessage.clientId,
+      failedMessage.to,
+      failedMessage.text,
+      failedMessage.time,
+    );
   }
 
   function clearLocalSession(reason) {
@@ -1078,6 +1227,7 @@ export function useMessenger() {
 
     myKeysRef.current = { publicKey: null, privateKey: null };
     outboundQueueRef.current = [];
+    deliveryReceiptQueueRef.current.clear();
     userCacheRef.current = {};
     inFlightFetchesRef.current.clear();
     sessionRefreshPromiseRef.current = null;
@@ -1176,7 +1326,7 @@ export function useMessenger() {
     sessions, sessionsLoading, loadSessions, revokeDeviceSession,
     viewingPartnerProfile, setViewingPartnerProfile,
     toasts, showNotification, dismissToast, // Выводим управление пушами наружу
-    handleAuth, sendMessage, sendReadReceipt, logout, switchAccount,
+    handleAuth, sendMessage, retryMessage, sendReadReceipt, logout, switchAccount,
     changeProfileData, tryStartChat, fetchAndCacheUser, inspectPartnerProfile
   };
 }

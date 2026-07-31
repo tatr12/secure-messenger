@@ -130,6 +130,19 @@ class MessageRepository:
         await self.db.execute(stmt)
         await self.db.commit()
 
+    async def mark_as_delivered(
+        self, message_id: int, receiver: str
+    ) -> MessageTable | None:
+        message = await self.db.get(MessageTable, message_id)
+        if message is None or message.receiver != receiver:
+            return None
+
+        if message.status == "sent":
+            message.status = "delivered"
+            await self.db.commit()
+
+        return message
+
 
 class SessionRepository:
     def __init__(self, db: AsyncSession):
