@@ -341,14 +341,6 @@ export function useMessenger() {
     }, 300);
   };
 
-  // Воспроизведение звука входящего сообщения
-  const playNotificationSound = () => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = 0; // Сброс в начало, если сообщения летят пачкой
-      audioRef.current.play().catch(e => console.log("[Audio] Воспроизведение заблокировано браузером до первого клика", e));
-    }
-  };
-
   async function fetchAndCacheUser(login) {
     if (!login) return '';
     const sessionGeneration = sessionLifecycleRef.current.currentGeneration();
