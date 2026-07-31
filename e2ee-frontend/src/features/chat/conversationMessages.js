@@ -107,6 +107,7 @@ export function filterChatSummaries(summaries, filter) {
 
 export function getChatPreview(message, currentUsername, hasHistory = false) {
   if (!message) return hasHistory ? 'История доступна' : 'Начать диалог';
+  if (message.deleted) return 'Сообщение удалено';
 
   const text = String(message.text ?? message.content ?? '').trim();
   const preview = text || 'Зашифрованное сообщение';

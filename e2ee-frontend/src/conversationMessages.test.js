@@ -67,6 +67,10 @@ test('chat preview identifies outgoing and failed messages truthfully', () => {
     getChatPreview({ from: 'alice', text: 'Ответ', status: 'error' }, 'alice'),
     'Не отправлено: Ответ',
   );
+  assert.equal(
+    getChatPreview({ from: 'alice', text: '', deleted: true }, 'alice'),
+    'Сообщение удалено',
+  );
 });
 
 test('server unread metadata overrides the loaded history window', () => {

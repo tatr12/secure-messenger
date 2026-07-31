@@ -24,6 +24,16 @@ import {
 import { buildWebSocketProtocols, buildWebSocketUrl } from './websocketUrl';
 import { formatMessageTime } from './features/chat/messageDates';
 import { advanceMessageStatus } from './features/chat/messageStatus';
+import {
+  createDeleteEnvelope,
+  createEditEnvelope,
+  createMessageEnvelope,
+  createReactionEnvelope,
+  getMessageEventNotification,
+  materializeMessageEvents,
+  parseMessageEvent,
+  serializeMessageEnvelope,
+} from './features/chat/messageEvents';
 
 // Укажи путь к звуковому файлу (из папки public или внешний URL)
 const NOTIFICATION_SOUND_URL = '/audio_2026-06-13_23-53-24.mp3';
@@ -65,6 +75,7 @@ export function useMessenger() {
   const outboundQueueRef = useRef(new Map());
   const deliveryReceiptQueueRef = useRef(new Map());
   const receivedMessageIdsRef = useRef(new Set());
+  const messageEventsRef = useRef([]);
   const historyBeforeIdRef = useRef(null);
   const historyLoadingRef = useRef(false);
   const myKeysRef = useRef({ publicKey: null, privateKey: null });
@@ -74,6 +85,7 @@ export function useMessenger() {
   const wsRef = useRef(null);
   const sessionLifecycleRef = useRef(null);
   const chatPreferencesRef = useRef({});
+  const activeChatUserRef = useRef('');
 
   if (sessionLifecycleRef.current === null) {
     sessionLifecycleRef.current = createSessionLifecycle();
@@ -95,6 +107,15 @@ export function useMessenger() {
     }
   };
 
+  const commitMessageEvents = (events, currentUsername = username) => {
+    messageEventsRef.current = events;
+    setAllMessages(materializeMessageEvents(events, currentUsername));
+  };
+
+  const updateMessageEvents = (updater, currentUsername = username) => {
+    commitMessageEvents(updater(messageEventsRef.current), currentUsername);
+  };
+
   const closeCurrentWebSocket = (reason) => {
     const currentWebSocket = wsRef.current;
     wsRef.current = null;
@@ -114,6 +135,7 @@ export function useMessenger() {
     outboundQueueRef.current.clear();
     deliveryReceiptQueueRef.current.clear();
     receivedMessageIdsRef.current.clear();
+    messageEventsRef.current = [];
     historyBeforeIdRef.current = null;
     historyLoadingRef.current = false;
     chatPreferencesRef.current = {};
@@ -221,6 +243,7 @@ export function useMessenger() {
       outboundQueue.clear();
       deliveryReceiptQueue.clear();
       receivedMessageIds.clear();
+      messageEventsRef.current = [];
       myKeysRef.current = { publicKey: null, privateKey: null };
       sessionTokenRef.current = null;
       sessionRefreshPromiseRef.current = null;
@@ -231,6 +254,10 @@ export function useMessenger() {
   useEffect(() => {
     userCacheRef.current = userCache;
   }, [userCache]);
+
+  useEffect(() => {
+    activeChatUserRef.current = activeChatUser;
+  }, [activeChatUser]);
 
   // Живой поиск
   useEffect(() => {
@@ -575,14 +602,14 @@ export function useMessenger() {
           type: 'read_receipt',
           sender: senderUsername,
         }));
-        setAllMessages(prev => prev.map(m => (
-          m.from === senderUsername && m.to === username
+        updateMessageEvents((events) => events.map((event) => (
+          event.from === senderUsername && event.to === username
             ? {
-                ...m,
-                status: advanceMessageStatus(m.status, 'read'),
+                ...event,
+                status: advanceMessageStatus(event.status, 'read'),
                 readAt,
               }
-            : m
+            : event
         )));
         setUnreadCounts((current) => ({
           ...current,
@@ -654,13 +681,13 @@ export function useMessenger() {
     }
   }
 
-  async function decryptHistoryMessages(
+  async function decryptHistoryEvents(
     encryptedMessages,
     myPrivateKey,
     currentUsername,
     sessionGeneration,
   ) {
-    const decryptedMessages = [];
+    const decryptedEvents = [];
 
     for (const encryptedMessage of encryptedMessages) {
       if (!sessionLifecycleRef.current.isActive(sessionGeneration)) break;
@@ -672,20 +699,18 @@ export function useMessenger() {
           currentUsername,
         );
         const createdAt = encryptedMessage.created_at ?? null;
-        decryptedMessages.push({
+        decryptedEvents.push(parseMessageEvent(decryptedText, {
           id: encryptedMessage.id || crypto.randomUUID(),
           serverId: encryptedMessage.id,
           clientId: encryptedMessage.client_id ?? null,
           from: encryptedMessage.from,
           to: encryptedMessage.to,
-          text: decryptedText,
           createdAt,
           deliveredAt: encryptedMessage.delivered_at ?? null,
           readAt: encryptedMessage.read_at ?? null,
           time: formatMessageTime(createdAt, encryptedMessage.time),
           status: encryptedMessage.status || 'sent',
-          isMine: encryptedMessage.from === currentUsername,
-        });
+        }));
         if (Number.isInteger(encryptedMessage.id)) {
           receivedMessageIdsRef.current.add(encryptedMessage.id);
         }
@@ -707,7 +732,7 @@ export function useMessenger() {
       }
     }
 
-    return decryptedMessages;
+    return decryptedEvents;
   }
 
   async function syncCloudHistory(
@@ -747,7 +772,7 @@ export function useMessenger() {
         ...preferencePartners,
       ]));
       await cachePartnerNames(partners, sessionGeneration);
-      const decryptedMessages = await decryptHistoryMessages(
+      const decryptedEvents = await decryptHistoryEvents(
         page.messages ?? [],
         myPrivateKey,
         currentUsername,
@@ -764,10 +789,13 @@ export function useMessenger() {
       setChatPreferences(indexedPreferences);
       setHistoryPartners(historyPartnerList);
       setChatPartners(partners);
-      setAllMessages(decryptedMessages);
+      commitMessageEvents(decryptedEvents, currentUsername);
 
       console.log('[History] Последняя страница восстановлена', {
-        messages: decryptedMessages.length,
+        messages: materializeMessageEvents(
+          decryptedEvents,
+          currentUsername,
+        ).length,
         chats: partners.length,
       });
     } catch (error) {
@@ -803,7 +831,7 @@ export function useMessenger() {
       const page = await requestHistoryPage(accessToken, beforeId);
       if (!lifecycle.isActive(sessionGeneration)) return;
 
-      const decryptedMessages = await decryptHistoryMessages(
+      const decryptedEvents = await decryptHistoryEvents(
         page.messages ?? [],
         privateKey,
         username,
@@ -814,13 +842,22 @@ export function useMessenger() {
       historyBeforeIdRef.current = page.next_before_id ?? null;
       setHasOlderMessages(Boolean(page.next_before_id));
       setUnreadCounts(page.unread_counts ?? {});
-      setAllMessages((current) => {
-        const knownServerIds = new Set(current.map((item) => item.serverId));
-        const olderMessages = decryptedMessages.filter(
-          (item) => !knownServerIds.has(item.serverId),
-        );
-        return [...olderMessages, ...current];
-      });
+      const knownServerIds = new Set(
+        messageEventsRef.current.map((item) => item.serverId),
+      );
+      const knownEventIds = new Set(
+        messageEventsRef.current.map((item) => item.eventId),
+      );
+      const olderEvents = decryptedEvents.filter(
+        (item) => (
+          !knownServerIds.has(item.serverId) &&
+          !knownEventIds.has(item.eventId)
+        ),
+      );
+      commitMessageEvents(
+        [...olderEvents, ...messageEventsRef.current],
+        username,
+      );
     } catch (error) {
       if (lifecycle.isActive(sessionGeneration)) {
         console.error('[History] Ошибка загрузки старых сообщений:', error);
@@ -1165,21 +1202,21 @@ export function useMessenger() {
 
       if (data.type === "read_receipt_update") {
         if (!isCurrentSocket()) return;
-        setAllMessages(prev => prev.map(m => (
-          m.from === user && m.to === data.reader
+        updateMessageEvents((events) => events.map((eventItem) => (
+          eventItem.from === user && eventItem.to === data.reader
             ? {
-                ...m,
-                status: advanceMessageStatus(m.status, 'read'),
-                readAt: data.read_at ?? m.readAt,
+                ...eventItem,
+                status: advanceMessageStatus(eventItem.status, 'read'),
+                readAt: data.read_at ?? eventItem.readAt,
               }
-            : m
-        )));
+            : eventItem
+        )), user);
         return;
       }
 
       if (data.type === 'message_ack') {
         outboundQueueRef.current.delete(data.client_id);
-        setAllMessages((current) => current.map((item) => (
+        updateMessageEvents((events) => events.map((item) => (
           item.clientId === data.client_id
             ? {
                 ...item,
@@ -1189,12 +1226,12 @@ export function useMessenger() {
                 status: advanceMessageStatus(item.status, 'sent'),
               }
             : item
-        )));
+        )), user);
         return;
       }
 
       if (data.type === 'delivery_receipt_update') {
-        setAllMessages((current) => current.map((item) => {
+        updateMessageEvents((events) => events.map((item) => {
           const matchesServerId = item.serverId === data.message_id;
           const matchesClientId = data.client_id != null &&
             item.clientId === data.client_id;
@@ -1206,7 +1243,7 @@ export function useMessenger() {
             deliveredAt: data.delivered_at ?? item.deliveredAt,
             status: advanceMessageStatus(item.status, 'delivered'),
           };
-        }));
+        }), user);
         return;
       }
 
@@ -1268,9 +1305,21 @@ export function useMessenger() {
 
         if (!isCurrentSocket()) return;
 
-        const text = new TextDecoder().decode(decryptedRaw);
+        const plaintext = new TextDecoder().decode(decryptedRaw);
         const createdAt = data.created_at ?? new Date().toISOString();
         const deliveredAt = data.delivered_at ?? new Date().toISOString();
+        const incomingEvent = parseMessageEvent(plaintext, {
+          id: data.id,
+          serverId: data.id,
+          clientId: data.client_id ?? null,
+          from: data.from,
+          to: user,
+          createdAt,
+          deliveredAt,
+          readAt: null,
+          time: formatMessageTime(createdAt, data.time),
+          status: 'delivered',
+        });
         if (Number.isInteger(data.id)) {
           receivedMessageIdsRef.current.add(data.id);
         }
@@ -1278,35 +1327,31 @@ export function useMessenger() {
         setHistoryPartners((current) => (
           current.includes(data.from) ? current : [...current, data.from]
         ));
+        const isActiveConversation = activeChatUserRef.current === data.from;
         setUnreadCounts((current) => ({
           ...current,
-          [data.from]: (current[data.from] ?? 0) + 1,
+          [data.from]: isActiveConversation
+            ? 0
+            : (current[data.from] ?? 0) + 1,
         }));
-        setAllMessages(prev => [...prev, {
-          id: data.id,
-          serverId: data.id,
-          clientId: data.client_id ?? null,
-          from: data.from,
-          to: user,
-          type: 'text',
-          text,
-          createdAt,
-          updatedAt: createdAt,
-          edited: false,
-          deleted: false,
-          replyTo: null,
-          reactions: {},
-          deliveredAt,
-          readAt: null,
-          time: formatMessageTime(createdAt, data.time),
-          status: 'delivered',
-        }]);
+        updateMessageEvents(
+          (events) => [...events, incomingEvent],
+          user,
+        );
 
         queueDeliveryReceipt(data.id, data.client_id);
 
+        if (isActiveConversation) {
+          sendReadReceipt(data.from);
+        }
+
         if (!chatPreferencesRef.current[data.from]?.muted) {
           playNotificationSound();
-          showNotification(text, 'chat', senderName);
+          showNotification(
+            getMessageEventNotification(incomingEvent),
+            'chat',
+            senderName,
+          );
         }
       } catch (error) {
         if (!isCurrentSocket()) return;
@@ -1326,7 +1371,12 @@ export function useMessenger() {
     };
   }
 
-  async function transmitMessage(clientId, currentTarget, msgText, timeString) {
+  async function transmitMessageEvent(
+    clientId,
+    currentTarget,
+    envelope,
+    timeString,
+  ) {
     const lifecycle = sessionLifecycleRef.current;
     const sessionGeneration = lifecycle.currentGeneration();
     const privateKey = myKeysRef.current.privateKey;
@@ -1367,7 +1417,7 @@ export function useMessenger() {
       const iv = window.crypto.getRandomValues(new Uint8Array(12));
       const ciphertextRaw = await window.crypto.subtle.encrypt(
         { name: "AES-GCM", iv }, aesKey,
-        new TextEncoder().encode(msgText)
+        new TextEncoder().encode(serializeMessageEnvelope(envelope))
       );
       const ciphertextBase64 = arrayBufferToBase64(ciphertextRaw);
       const ivBase64 = arrayBufferToBase64(iv);
@@ -1397,14 +1447,16 @@ export function useMessenger() {
     } catch (error) {
       if (lifecycle.isActive(sessionGeneration)) {
         outboundQueueRef.current.delete(clientId);
-        setAllMessages((current) => current.map((item) => (
+        updateMessageEvents((events) => events.map((item) => (
           item.clientId === clientId
             ? { ...item, status: 'error' }
             : item
         )));
-        console.error('[sendMessage] Сообщение не отправлено:', error);
+        console.error('[sendMessageEvent] Событие не отправлено:', error);
         showNotification(
-          'Сообщение не отправлено. Можно повторить безопасно.',
+          envelope.kind === 'message'
+            ? 'Сообщение не отправлено. Можно повторить безопасно.'
+            : 'Действие с сообщением не отправлено.',
           'error',
         );
       }
@@ -1412,53 +1464,143 @@ export function useMessenger() {
     }
   }
 
-  function sendMessage(currentTarget, textOverride = null) {
+  function enqueueMessageEvent(currentTarget, envelope) {
+    const createdAt = new Date().toISOString();
+    const timeString = formatMessageTime(createdAt);
+    const optimisticEvent = parseMessageEvent(
+      serializeMessageEnvelope(envelope),
+      {
+        id: envelope.event_id,
+        serverId: null,
+        clientId: envelope.event_id,
+        from: username,
+        to: currentTarget,
+        createdAt,
+        deliveredAt: null,
+        readAt: null,
+        time: timeString,
+        status: 'sending',
+      },
+    );
+    updateMessageEvents((events) => [...events, optimisticEvent]);
+    void transmitMessageEvent(
+      envelope.event_id,
+      currentTarget,
+      envelope,
+      timeString,
+    );
+    return envelope.event_id;
+  }
+
+  function sendMessage(currentTarget, textOverride = null, options = {}) {
     const currentMessage = textOverride ?? message;
-    if (!currentTarget || !currentMessage.trim()) return;
+    if (!currentTarget || !currentMessage.trim()) return false;
 
     const lifecycle = sessionLifecycleRef.current;
     const sessionGeneration = lifecycle.currentGeneration();
     if (
       !lifecycle.isActive(sessionGeneration) ||
       !myKeysRef.current.privateKey
-    ) return;
+    ) return false;
 
-    const clientId = window.crypto.randomUUID();
-    const createdAt = new Date().toISOString();
-    const timeString = formatMessageTime(createdAt);
-    setAllMessages(prev => [...prev, {
-      id: clientId,
-      clientId,
-      serverId: null,
-      from: username,
-      to: currentTarget,
+    const eventId = window.crypto.randomUUID();
+    const envelope = createMessageEnvelope({
+      eventId,
       text: currentMessage,
-      createdAt,
-      time: timeString,
-      status: 'sending',
-    }]);
+      replyTo: options.replyTo ?? null,
+    });
+    enqueueMessageEvent(currentTarget, envelope);
     setMessage('');
-    void transmitMessage(clientId, currentTarget, currentMessage, timeString);
+    return eventId;
   }
 
   function retryMessage(messageId) {
-    const failedMessage = allMessages.find(
-      (item) => item.id === messageId && item.status === 'error',
+    const failedEvent = messageEventsRef.current.find(
+      (item) => (
+        item.kind === 'message' &&
+        item.messageId === messageId &&
+        item.status === 'error'
+      ),
     );
-    if (!failedMessage || failedMessage.from !== username) return;
+    if (!failedEvent || failedEvent.from !== username) return;
 
-    outboundQueueRef.current.delete(failedMessage.clientId);
-    setAllMessages((current) => current.map((item) => (
-      item.id === messageId
+    outboundQueueRef.current.delete(failedEvent.clientId);
+    updateMessageEvents((events) => events.map((item) => (
+      item.eventId === failedEvent.eventId
         ? { ...item, status: 'sending' }
         : item
     )));
-    void transmitMessage(
-      failedMessage.clientId,
-      failedMessage.to,
-      failedMessage.text,
-      failedMessage.time,
+    void transmitMessageEvent(
+      failedEvent.clientId,
+      failedEvent.to,
+      createMessageEnvelope({
+        eventId: failedEvent.eventId,
+        text: failedEvent.text,
+        replyTo: failedEvent.replyToId,
+      }),
+      failedEvent.time,
     );
+  }
+
+  function editMessage(currentTarget, messageId, nextText) {
+    const target = allMessages.find((item) => item.id === messageId);
+    const cleanText = nextText.trim();
+    if (
+      !currentTarget ||
+      !target ||
+      target.from !== username ||
+      target.deleted ||
+      !cleanText ||
+      cleanText === target.text
+    ) return false;
+
+    enqueueMessageEvent(
+      currentTarget,
+      createEditEnvelope({
+        eventId: window.crypto.randomUUID(),
+        targetId: messageId,
+        text: cleanText,
+      }),
+    );
+    return true;
+  }
+
+  function deleteMessage(currentTarget, messageId) {
+    const target = allMessages.find((item) => item.id === messageId);
+    if (
+      !currentTarget ||
+      !target ||
+      target.from !== username ||
+      target.deleted
+    ) return false;
+
+    enqueueMessageEvent(
+      currentTarget,
+      createDeleteEnvelope({
+        eventId: window.crypto.randomUUID(),
+        targetId: messageId,
+      }),
+    );
+    return true;
+  }
+
+  function toggleMessageReaction(currentTarget, messageId, emoji) {
+    const target = allMessages.find((item) => item.id === messageId);
+    if (!currentTarget || !target || target.deleted) return false;
+    const existingReaction = target.reactions.find(
+      (reaction) => reaction.emoji === emoji,
+    );
+
+    enqueueMessageEvent(
+      currentTarget,
+      createReactionEnvelope({
+        eventId: window.crypto.randomUUID(),
+        targetId: messageId,
+        emoji,
+        operation: existingReaction?.reactedByMe ? 'remove' : 'add',
+      }),
+    );
+    return true;
   }
 
   function clearLocalSession(reason) {
@@ -1471,6 +1613,7 @@ export function useMessenger() {
     outboundQueueRef.current.clear();
     deliveryReceiptQueueRef.current.clear();
     receivedMessageIdsRef.current.clear();
+    messageEventsRef.current = [];
     historyBeforeIdRef.current = null;
     historyLoadingRef.current = false;
     chatPreferencesRef.current = {};
@@ -1585,7 +1728,8 @@ export function useMessenger() {
     sessions, sessionsLoading, loadSessions, revokeDeviceSession,
     viewingPartnerProfile, setViewingPartnerProfile,
     toasts, showNotification, dismissToast, // Выводим управление пушами наружу
-    handleAuth, sendMessage, retryMessage, sendReadReceipt, logout, switchAccount,
+    handleAuth, sendMessage, retryMessage, editMessage, deleteMessage,
+    toggleMessageReaction, sendReadReceipt, logout, switchAccount,
     changeProfileData, saveChatPreference, tryStartChat,
     fetchAndCacheUser, inspectPartnerProfile
   };
