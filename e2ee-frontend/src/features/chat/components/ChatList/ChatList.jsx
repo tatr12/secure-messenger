@@ -1,6 +1,10 @@
 
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { Search, SquarePen } from 'lucide-react';
+import {
+  buildChatSummaries,
+  getChatPreview,
+} from '../../conversationMessages';
 
 import './ChatList.css';
 
@@ -13,8 +17,14 @@ export default function ChatList({
   setSearchQuery,
   searchResults = [],
   tryStartChat,
+  messages = [],
+  username: currentUsername,
 }) {
   const searchInputRef = useRef(null);
+  const chatSummaries = useMemo(
+    () => buildChatSummaries(chatPartners, messages, currentUsername),
+    [chatPartners, currentUsername, messages],
+  );
 
   const startNewChat = () => {
     setSearchQuery('');
@@ -93,18 +103,18 @@ export default function ChatList({
           </div>
         ) : (
 
-          chatPartners.map((username) => (
+          chatSummaries.map(({ partner, lastMessage, unreadCount }) => (
             <button
-              key={username}
+              key={partner}
               className={`chat-list__item ${
-                activeChatUser === username ? 'is-active' : ''
+                activeChatUser === partner ? 'is-active' : ''
               }`}
               type="button"
-              onClick={() => setActiveChatUser(username)}
+              onClick={() => setActiveChatUser(partner)}
             >
 
               <div className="chat-list__avatar">
-                {(userCache[username] || username)[0].toUpperCase()}
+                {(userCache[partner] || partner)[0].toUpperCase()}
               </div>
 
 
@@ -112,15 +122,24 @@ export default function ChatList({
 
                 <div className="chat-list__topline">
                   <strong>
-                    {userCache[username] || username}
+                    {userCache[partner] || partner}
                   </strong>
+                  {lastMessage?.time && <time>{lastMessage.time}</time>}
                 </div>
 
 
                 <div className="chat-list__bottomline">
-                  <span>
-                    Начать диалог
+                  <span className={lastMessage?.status === 'error' ? 'is-error' : ''}>
+                    {getChatPreview(lastMessage, currentUsername)}
                   </span>
+                  {unreadCount > 0 && (
+                    <span
+                      className="chat-list__unread"
+                      aria-label={`${unreadCount} непрочитанных`}
+                    >
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  )}
                 </div>
 
               </div>

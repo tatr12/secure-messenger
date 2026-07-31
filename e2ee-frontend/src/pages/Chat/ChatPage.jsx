@@ -183,6 +183,8 @@ export default function ChatPage({ messenger }) {
         setSearchQuery={messenger.setSearchQuery}
         searchResults={messenger.searchResults}
         tryStartChat={messenger.tryStartChat}
+        messages={messenger.allMessages}
+        username={messenger.username}
       />
 
       {messenger.activeChatUser ? (
