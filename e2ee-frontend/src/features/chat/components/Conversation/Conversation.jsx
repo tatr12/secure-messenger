@@ -22,6 +22,11 @@ export default function Conversation({
   hasOlderMessages,
   historyLoading,
   onLoadOlderMessages,
+  chatPreference,
+  preferenceSaving,
+  onTogglePin,
+  onToggleMute,
+  onToggleArchive,
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [messageSearch, setMessageSearch] = useState('');
@@ -50,6 +55,11 @@ export default function Conversation({
           onAudioCall={() => onUnavailableAction('Аудиозвонки')}
           onVideoCall={() => onUnavailableAction('Видеозвонки')}
           onOpenProfile={onOpenProfile}
+          chatPreference={chatPreference}
+          preferenceSaving={preferenceSaving}
+          onTogglePin={onTogglePin}
+          onToggleMute={onToggleMute}
+          onToggleArchive={onToggleArchive}
         />
 
         {searchOpen && (

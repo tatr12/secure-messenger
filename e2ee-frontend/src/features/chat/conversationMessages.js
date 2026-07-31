@@ -31,6 +31,7 @@ export function buildChatSummaries(
   messages,
   currentUsername,
   unreadCounts = {},
+  chatPreferences = {},
 ) {
   const partnerOrder = new Map(
     chatPartners.map((partner, index) => [partner, index]),
@@ -43,6 +44,9 @@ export function buildChatSummaries(
         lastMessage: null,
         lastMessageIndex: -1,
         unreadCount: 0,
+        pinned: Boolean(chatPreferences[partner]?.pinned),
+        muted: Boolean(chatPreferences[partner]?.muted),
+        archived: Boolean(chatPreferences[partner]?.archived),
       },
     ]),
   );
@@ -56,6 +60,9 @@ export function buildChatSummaries(
       lastMessage: null,
       lastMessageIndex: -1,
       unreadCount: 0,
+      pinned: Boolean(chatPreferences[partner]?.pinned),
+      muted: Boolean(chatPreferences[partner]?.muted),
+      archived: Boolean(chatPreferences[partner]?.archived),
     };
 
     summary.lastMessage = message;
@@ -73,6 +80,9 @@ export function buildChatSummaries(
   }
 
   return Array.from(summaries.values()).sort((first, second) => {
+    if (first.pinned !== second.pinned) {
+      return first.pinned ? -1 : 1;
+    }
     if (first.lastMessageIndex !== second.lastMessageIndex) {
       return second.lastMessageIndex - first.lastMessageIndex;
     }
@@ -81,6 +91,18 @@ export function buildChatSummaries(
       (partnerOrder.get(second.partner) ?? Number.MAX_SAFE_INTEGER)
     );
   });
+}
+
+export function filterChatSummaries(summaries, filter) {
+  if (filter === 'archive') {
+    return summaries.filter((summary) => summary.archived);
+  }
+  if (filter === 'unread') {
+    return summaries.filter(
+      (summary) => !summary.archived && summary.unreadCount > 0,
+    );
+  }
+  return summaries.filter((summary) => !summary.archived);
 }
 
 export function getChatPreview(message, currentUsername, hasHistory = false) {

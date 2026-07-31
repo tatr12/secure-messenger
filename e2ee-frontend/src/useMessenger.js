@@ -16,6 +16,11 @@ import {
   revokeSession,
 } from './sessionApi';
 import { updateProfile } from './profileApi';
+import {
+  indexChatPreferences,
+  listChatPreferences,
+  updateChatPreference,
+} from './chatPreferencesApi';
 import { buildWebSocketProtocols, buildWebSocketUrl } from './websocketUrl';
 import { formatMessageTime } from './features/chat/messageDates';
 import { advanceMessageStatus } from './features/chat/messageStatus';
@@ -41,6 +46,8 @@ export function useMessenger() {
   const [message, setMessage] = useState('');
   const [allMessages, setAllMessages] = useState([]);
   const [unreadCounts, setUnreadCounts] = useState({});
+  const [chatPreferences, setChatPreferences] = useState({});
+  const [chatPreferenceSaving, setChatPreferenceSaving] = useState({});
   const [historyPartners, setHistoryPartners] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
@@ -66,6 +73,7 @@ export function useMessenger() {
   const sessionRevocationPromiseRef = useRef(null);
   const wsRef = useRef(null);
   const sessionLifecycleRef = useRef(null);
+  const chatPreferencesRef = useRef({});
 
   if (sessionLifecycleRef.current === null) {
     sessionLifecycleRef.current = createSessionLifecycle();
@@ -108,8 +116,11 @@ export function useMessenger() {
     receivedMessageIdsRef.current.clear();
     historyBeforeIdRef.current = null;
     historyLoadingRef.current = false;
+    chatPreferencesRef.current = {};
     setHistoryLoading(false);
     setHasOlderMessages(false);
+    setChatPreferences({});
+    setChatPreferenceSaving({});
     setWsStatus('offline');
     return generation;
   };
@@ -213,6 +224,7 @@ export function useMessenger() {
       myKeysRef.current = { publicKey: null, privateKey: null };
       sessionTokenRef.current = null;
       sessionRefreshPromiseRef.current = null;
+      chatPreferencesRef.current = {};
     };
   }, []);
 
@@ -405,6 +417,81 @@ export function useMessenger() {
         showNotification('Не удалось сохранить профиль.', 'error');
       }
       return false;
+    }
+  }
+
+  async function saveChatPreference(partner, updates) {
+    if (!partner || Object.keys(updates).length === 0) return false;
+
+    const lifecycle = sessionLifecycleRef.current;
+    const sessionGeneration = lifecycle.currentGeneration();
+    if (!lifecycle.isActive(sessionGeneration)) return false;
+
+    setChatPreferenceSaving((current) => ({
+      ...current,
+      [partner]: true,
+    }));
+    try {
+      const requestUpdate = () => updateChatPreference(
+        sessionTokenRef.current,
+        partner,
+        updates,
+      );
+      let preference;
+
+      try {
+        preference = await requestUpdate();
+      } catch (error) {
+        if (error.status !== 401 || !lifecycle.isActive(sessionGeneration)) {
+          throw error;
+        }
+        await refreshAccessToken(username, sessionGeneration);
+        if (!lifecycle.isActive(sessionGeneration)) return false;
+        preference = await requestUpdate();
+      }
+
+      if (!lifecycle.isActive(sessionGeneration)) return false;
+      setChatPreferences((current) => {
+        const next = { ...current, [partner]: preference };
+        chatPreferencesRef.current = next;
+        return next;
+      });
+
+      if (preference.archived) {
+        setActiveChatUser((current) => (current === partner ? '' : current));
+      }
+
+      let notice = 'Настройки чата сохранены.';
+      if ('pinned' in updates) {
+        notice = preference.pinned ? 'Чат закреплён.' : 'Чат откреплён.';
+      } else if ('muted' in updates) {
+        notice = preference.muted
+          ? 'Уведомления для чата выключены.'
+          : 'Уведомления для чата включены.';
+      } else if ('archived' in updates) {
+        notice = preference.archived
+          ? 'Чат перемещён в архив.'
+          : 'Чат возвращён из архива.';
+      }
+      showNotification(notice, 'success');
+      return true;
+    } catch (error) {
+      if (lifecycle.isActive(sessionGeneration)) {
+        console.error(
+          '[Chat Preferences] Не удалось сохранить настройку чата',
+          error,
+        );
+        showNotification('Не удалось сохранить настройку чата.', 'error');
+      }
+      return false;
+    } finally {
+      if (lifecycle.isActive(sessionGeneration)) {
+        setChatPreferenceSaving((current) => {
+          const next = { ...current };
+          delete next[partner];
+          return next;
+        });
+      }
     }
   }
 
@@ -639,10 +726,26 @@ export function useMessenger() {
         return;
       }
 
-      const page = await requestHistoryPage(accessToken);
+      const [page, preferenceList] = await Promise.all([
+        requestHistoryPage(accessToken),
+        listChatPreferences(accessToken).catch((error) => {
+          console.error(
+            '[Chat Preferences] Не удалось загрузить настройки чатов',
+            error,
+          );
+          return [];
+        }),
+      ]);
       if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return;
 
-      const partners = page.chat_partners ?? [];
+      const historyPartnerList = page.chat_partners ?? [];
+      const preferencePartners = preferenceList.map(
+        (preference) => preference.partner,
+      );
+      const partners = Array.from(new Set([
+        ...historyPartnerList,
+        ...preferencePartners,
+      ]));
       await cachePartnerNames(partners, sessionGeneration);
       const decryptedMessages = await decryptHistoryMessages(
         page.messages ?? [],
@@ -656,7 +759,10 @@ export function useMessenger() {
       historyBeforeIdRef.current = page.next_before_id ?? null;
       setHasOlderMessages(Boolean(page.next_before_id));
       setUnreadCounts(page.unread_counts ?? {});
-      setHistoryPartners(partners);
+      const indexedPreferences = indexChatPreferences(preferenceList);
+      chatPreferencesRef.current = indexedPreferences;
+      setChatPreferences(indexedPreferences);
+      setHistoryPartners(historyPartnerList);
       setChatPartners(partners);
       setAllMessages(decryptedMessages);
 
@@ -1198,8 +1304,10 @@ export function useMessenger() {
 
         queueDeliveryReceipt(data.id, data.client_id);
 
-        playNotificationSound();
-        showNotification(text, 'chat', senderName);
+        if (!chatPreferencesRef.current[data.from]?.muted) {
+          playNotificationSound();
+          showNotification(text, 'chat', senderName);
+        }
       } catch (error) {
         if (!isCurrentSocket()) return;
 
@@ -1365,6 +1473,7 @@ export function useMessenger() {
     receivedMessageIdsRef.current.clear();
     historyBeforeIdRef.current = null;
     historyLoadingRef.current = false;
+    chatPreferencesRef.current = {};
     userCacheRef.current = {};
     inFlightFetchesRef.current.clear();
     sessionRefreshPromiseRef.current = null;
@@ -1395,6 +1504,8 @@ export function useMessenger() {
     setConfirmPassword('');
     setAllMessages([]);
     setUnreadCounts({});
+    setChatPreferences({});
+    setChatPreferenceSaving({});
     setHistoryPartners([]);
     setHistoryLoading(false);
     setHasOlderMessages(false);
@@ -1461,6 +1572,8 @@ export function useMessenger() {
     message, setMessage,
     allMessages,
     unreadCounts,
+    chatPreferences,
+    chatPreferenceSaving,
     historyPartners,
     historyLoading,
     hasOlderMessages,
@@ -1473,6 +1586,7 @@ export function useMessenger() {
     viewingPartnerProfile, setViewingPartnerProfile,
     toasts, showNotification, dismissToast, // Выводим управление пушами наружу
     handleAuth, sendMessage, retryMessage, sendReadReceipt, logout, switchAccount,
-    changeProfileData, tryStartChat, fetchAndCacheUser, inspectPartnerProfile
+    changeProfileData, saveChatPreference, tryStartChat,
+    fetchAndCacheUser, inspectPartnerProfile
   };
 }

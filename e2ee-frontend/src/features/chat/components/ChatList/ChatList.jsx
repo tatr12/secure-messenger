@@ -1,12 +1,30 @@
 
-import { useMemo, useRef } from 'react';
-import { Search, SquarePen } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { BellOff, Pin, Search, SquarePen } from 'lucide-react';
 import {
   buildChatSummaries,
+  filterChatSummaries,
   getChatPreview,
 } from '../../conversationMessages';
 
 import './ChatList.css';
+
+const CHAT_FILTERS = [
+  { id: 'all', label: 'Все' },
+  { id: 'unread', label: 'Непрочитанные' },
+  { id: 'archive', label: 'Архив' },
+];
+
+function getDialogCountLabel(count) {
+  const lastDigit = count % 10;
+  const lastTwoDigits = count % 100;
+  if (lastDigit === 1 && lastTwoDigits !== 11) return 'диалог';
+  if (
+    [2, 3, 4].includes(lastDigit) &&
+    ![12, 13, 14].includes(lastTwoDigits)
+  ) return 'диалога';
+  return 'диалогов';
+}
 
 export default function ChatList({
   chatPartners = [],
@@ -21,8 +39,10 @@ export default function ChatList({
   username: currentUsername,
   unreadCounts = {},
   historyPartners = [],
+  chatPreferences = {},
 }) {
   const searchInputRef = useRef(null);
+  const [activeFilter, setActiveFilter] = useState('all');
   const historyPartnerSet = useMemo(
     () => new Set(historyPartners),
     [historyPartners],
@@ -33,8 +53,19 @@ export default function ChatList({
       messages,
       currentUsername,
       unreadCounts,
+      chatPreferences,
     ),
-    [chatPartners, currentUsername, messages, unreadCounts],
+    [
+      chatPartners,
+      chatPreferences,
+      currentUsername,
+      messages,
+      unreadCounts,
+    ],
+  );
+  const visibleChatSummaries = useMemo(
+    () => filterChatSummaries(chatSummaries, activeFilter),
+    [activeFilter, chatSummaries],
   );
 
   const startNewChat = () => {
@@ -47,7 +78,9 @@ export default function ChatList({
       <header className="chat-list__header">
         <div>
           <h1>Чаты</h1>
-          <span>{chatPartners.length} диалогов</span>
+          <span>
+            {chatPartners.length} {getDialogCountLabel(chatPartners.length)}
+          </span>
         </div>
 
         <button
@@ -72,6 +105,20 @@ export default function ChatList({
           onChange={(e) => setSearchQuery(e.target.value)}
         />
       </label>
+
+      <div className="chat-list__filters" aria-label="Фильтр чатов">
+        {CHAT_FILTERS.map((filter) => (
+          <button
+            key={filter.id}
+            className={activeFilter === filter.id ? 'is-active' : ''}
+            type="button"
+            aria-pressed={activeFilter === filter.id}
+            onClick={() => setActiveFilter(filter.id)}
+          >
+            {filter.label}
+          </button>
+        ))}
+      </div>
 
 
       {searchResults.length > 0 && (
@@ -104,17 +151,23 @@ export default function ChatList({
 
       <div className="chat-list__items">
 
-        {chatPartners.length === 0 ? (
-          <div style={{
-            padding: '30px',
-            textAlign: 'center',
-            color: '#999'
-          }}>
-            Нет диалогов
+        {visibleChatSummaries.length === 0 ? (
+          <div className="chat-list__empty">
+            {activeFilter === 'unread' && 'Нет непрочитанных чатов'}
+            {activeFilter === 'archive' && 'Архив пуст'}
+            {activeFilter === 'all' && (
+              chatSummaries.length > 0 ? 'Все чаты в архиве' : 'Нет диалогов'
+            )}
           </div>
         ) : (
 
-          chatSummaries.map(({ partner, lastMessage, unreadCount }) => (
+          visibleChatSummaries.map(({
+            partner,
+            lastMessage,
+            unreadCount,
+            pinned,
+            muted,
+          }) => (
             <button
               key={partner}
               className={`chat-list__item ${
@@ -135,7 +188,15 @@ export default function ChatList({
                   <strong>
                     {userCache[partner] || partner}
                   </strong>
-                  {lastMessage?.time && <time>{lastMessage.time}</time>}
+                  <div className="chat-list__meta">
+                    {pinned && (
+                      <Pin size={12} aria-label="Чат закреплён" />
+                    )}
+                    {muted && (
+                      <BellOff size={13} aria-label="Уведомления выключены" />
+                    )}
+                    {lastMessage?.time && <time>{lastMessage.time}</time>}
+                  </div>
                 </div>
 
 

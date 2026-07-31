@@ -156,6 +156,17 @@
   background: var(--color-surface-hover);
 }
 
+.topbar__menu button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.topbar__menu-divider {
+  height: 1px;
+  margin: 6px 5px;
+  background: var(--color-border);
+}
+
 @keyframes topbar-menu-show {
   from {
     opacity: 0;

@@ -187,6 +187,7 @@ export default function ChatPage({ messenger }) {
         username={messenger.username}
         unreadCounts={messenger.unreadCounts}
         historyPartners={messenger.historyPartners}
+        chatPreferences={messenger.chatPreferences}
       />
 
       {messenger.activeChatUser ? (
@@ -215,6 +216,33 @@ export default function ChatPage({ messenger }) {
           hasOlderMessages={messenger.hasOlderMessages}
           historyLoading={messenger.historyLoading}
           onLoadOlderMessages={messenger.loadOlderMessages}
+          chatPreference={
+            messenger.chatPreferences[messenger.activeChatUser] || {}
+          }
+          preferenceSaving={Boolean(
+            messenger.chatPreferenceSaving[messenger.activeChatUser]
+          )}
+          onTogglePin={() => {
+            const preference =
+              messenger.chatPreferences[messenger.activeChatUser] || {};
+            messenger.saveChatPreference(messenger.activeChatUser, {
+              pinned: !preference.pinned,
+            });
+          }}
+          onToggleMute={() => {
+            const preference =
+              messenger.chatPreferences[messenger.activeChatUser] || {};
+            messenger.saveChatPreference(messenger.activeChatUser, {
+              muted: !preference.muted,
+            });
+          }}
+          onToggleArchive={() => {
+            const preference =
+              messenger.chatPreferences[messenger.activeChatUser] || {};
+            messenger.saveChatPreference(messenger.activeChatUser, {
+              archived: !preference.archived,
+            });
+          }}
         />
       ) : (
         <div className="empty-chat">

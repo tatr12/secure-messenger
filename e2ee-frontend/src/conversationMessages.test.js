@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   buildChatSummaries,
+  filterChatSummaries,
   getChatPreview,
   getConversationMessages,
   searchConversationMessages,
@@ -77,4 +78,34 @@ test('server unread metadata overrides the loaded history window', () => {
   );
 
   assert.equal(summary.unreadCount, 12);
+});
+
+test('pinned chats sort first and filters keep archive separate', () => {
+  const summaries = buildChatSummaries(
+    ['bob', 'carol', 'dave'],
+    [
+      { id: 1, from: 'alice', to: 'bob', text: 'one', status: 'sent' },
+      { id: 2, from: 'carol', to: 'alice', text: 'two', status: 'delivered' },
+    ],
+    'alice',
+    { carol: 2 },
+    {
+      bob: { pinned: true },
+      dave: { archived: true },
+    },
+  );
+
+  assert.deepEqual(summaries.map((summary) => summary.partner), [
+    'bob',
+    'carol',
+    'dave',
+  ]);
+  assert.deepEqual(
+    filterChatSummaries(summaries, 'unread').map((summary) => summary.partner),
+    ['carol'],
+  );
+  assert.deepEqual(
+    filterChatSummaries(summaries, 'archive').map((summary) => summary.partner),
+    ['dave'],
+  );
 });

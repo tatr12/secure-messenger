@@ -1,7 +1,13 @@
 import { useState } from 'react';
 import {
+  Archive,
+  ArchiveRestore,
+  Bell,
+  BellOff,
   MoreHorizontal,
   Phone,
+  Pin,
+  PinOff,
   Search,
   UserRound,
   Video,
@@ -18,6 +24,11 @@ export default function TopBar({
   onAudioCall,
   onVideoCall,
   onOpenProfile,
+  chatPreference = {},
+  preferenceSaving = false,
+  onTogglePin,
+  onToggleMute,
+  onToggleArchive,
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const visibleName = displayName || username || 'Собеседник';
@@ -106,6 +117,38 @@ export default function TopBar({
               >
                 <Search size={17} />
                 Найти сообщение
+              </button>
+              <div className="topbar__menu-divider" role="separator" />
+              <button
+                type="button"
+                role="menuitem"
+                disabled={preferenceSaving}
+                onClick={() => runMenuAction(onTogglePin)}
+              >
+                {chatPreference.pinned ? <PinOff size={17} /> : <Pin size={17} />}
+                {chatPreference.pinned ? 'Открепить чат' : 'Закрепить чат'}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={preferenceSaving}
+                onClick={() => runMenuAction(onToggleMute)}
+              >
+                {chatPreference.muted ? <Bell size={17} /> : <BellOff size={17} />}
+                {chatPreference.muted
+                  ? 'Включить уведомления'
+                  : 'Выключить уведомления'}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={preferenceSaving}
+                onClick={() => runMenuAction(onToggleArchive)}
+              >
+                {chatPreference.archived
+                  ? <ArchiveRestore size={17} />
+                  : <Archive size={17} />}
+                {chatPreference.archived ? 'Вернуть из архива' : 'В архив'}
               </button>
             </div>
           )}
