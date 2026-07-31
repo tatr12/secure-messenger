@@ -209,10 +209,34 @@ export default function ChatPage({ messenger }) {
               'info',
             )
           }
-          sendMessage={(text) => {
-            messenger.sendMessage(messenger.activeChatUser, text);
-          }}
+          sendMessage={(text, options) => (
+            messenger.sendMessage(
+              messenger.activeChatUser,
+              text,
+              options,
+            )
+          )}
           onRetryMessage={messenger.retryMessage}
+          onEditMessage={(messageId, text) => (
+            messenger.editMessage(
+              messenger.activeChatUser,
+              messageId,
+              text,
+            )
+          )}
+          onDeleteMessage={(messageId) => (
+            messenger.deleteMessage(
+              messenger.activeChatUser,
+              messageId,
+            )
+          )}
+          onToggleReaction={(messageId, emoji) => (
+            messenger.toggleMessageReaction(
+              messenger.activeChatUser,
+              messageId,
+              emoji,
+            )
+          )}
           hasOlderMessages={messenger.hasOlderMessages}
           historyLoading={messenger.historyLoading}
           onLoadOlderMessages={messenger.loadOlderMessages}

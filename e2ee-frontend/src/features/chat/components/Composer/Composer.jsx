@@ -4,12 +4,15 @@ import {
   Paperclip,
   Smile,
   Send,
+  X,
 } from 'lucide-react';
 
 import './Composer.css';
 
-export default function Composer({ onSend }) {
-  const [text, setText] = useState('');
+export default function Composer({ onSend, context, onCancelContext }) {
+  const [text, setText] = useState(
+    context?.mode === 'edit' ? context.message.text : '',
+  );
 
   const handleSubmit = (event) => {
     event.preventDefault();
@@ -18,9 +21,8 @@ export default function Composer({ onSend }) {
 
     if (!value) return;
 
-    onSend?.(value);
-
-    setText('');
+    const accepted = onSend?.(value);
+    if (accepted !== false) setText('');
   };
 
   return (
@@ -28,6 +30,34 @@ export default function Composer({ onSend }) {
       className="composer"
       onSubmit={handleSubmit}
     >
+      {context && (
+        <div className="composer__context">
+          <div>
+            <strong>
+              {context.mode === 'edit'
+                ? 'Редактирование сообщения'
+                : 'Ответ на сообщение'}
+            </strong>
+            <span>
+              {context.message.deleted
+                ? 'Сообщение удалено'
+                : context.message.text}
+            </span>
+          </div>
+          <button
+            type="button"
+            aria-label="Отменить действие"
+            title="Отменить"
+            onClick={() => {
+              if (context.mode === 'edit') setText('');
+              onCancelContext?.();
+            }}
+          >
+            <X size={17} />
+          </button>
+        </div>
+      )}
+
       <button 
         type="button" 
         aria-label="Добавить файл" 
@@ -43,8 +73,9 @@ export default function Composer({ onSend }) {
           type="text"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Сообщение..."
+          placeholder={context?.mode === 'edit' ? 'Новый текст...' : 'Сообщение...'}
           aria-label="Сообщение"
+          autoFocus={Boolean(context)}
         />
       </label>
 

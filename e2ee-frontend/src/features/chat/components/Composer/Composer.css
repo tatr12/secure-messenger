@@ -11,6 +11,60 @@
   backdrop-filter: blur(20px);
 }
 
+.composer__context {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: -4px 42px 0;
+  padding: 9px 12px;
+  border-left: 3px solid var(--color-accent);
+  border-radius: 9px;
+  background: var(--color-surface-soft);
+}
+
+.composer__context > div {
+  min-width: 0;
+}
+
+.composer__context strong,
+.composer__context span {
+  display: block;
+}
+
+.composer__context strong {
+  color: var(--color-text);
+  font-size: 12px;
+}
+
+.composer__context span {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer__context button {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.composer__context button:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
 .composer > button {
   width: 42px;
   height: 42px;

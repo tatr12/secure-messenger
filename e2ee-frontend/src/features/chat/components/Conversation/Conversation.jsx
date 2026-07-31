@@ -27,9 +27,13 @@ export default function Conversation({
   onTogglePin,
   onToggleMute,
   onToggleArchive,
+  onEditMessage,
+  onDeleteMessage,
+  onToggleReaction,
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [messageSearch, setMessageSearch] = useState('');
+  const [composerContext, setComposerContext] = useState(null);
   const conversationMessages = useMemo(
     () => getConversationMessages(messages, username, activeChatUser),
     [activeChatUser, messages, username],
@@ -42,6 +46,22 @@ export default function Conversation({
   const toggleSearch = () => {
     if (searchOpen) setMessageSearch('');
     setSearchOpen(!searchOpen);
+  };
+
+  const submitComposer = (text) => {
+    if (composerContext?.mode === 'edit') {
+      const saved = onEditMessage?.(composerContext.message.id, text);
+      if (saved !== false) setComposerContext(null);
+      return saved;
+    }
+
+    const sent = sendMessage(text, {
+      replyTo: composerContext?.mode === 'reply'
+        ? composerContext.message.id
+        : null,
+    });
+    if (sent !== false) setComposerContext(null);
+    return sent;
   };
 
   return (
@@ -99,9 +119,31 @@ export default function Conversation({
         hasOlderMessages={hasOlderMessages && !messageSearch.trim()}
         historyLoading={historyLoading}
         onLoadOlderMessages={onLoadOlderMessages}
+        onReplyMessage={(message) => {
+          setComposerContext({ mode: 'reply', message });
+        }}
+        onEditMessage={(message) => {
+          setComposerContext({ mode: 'edit', message });
+        }}
+        onDeleteMessage={(message) => {
+          onDeleteMessage?.(message.id);
+          if (composerContext?.message.id === message.id) {
+            setComposerContext(null);
+          }
+        }}
+        onToggleReaction={(message, emoji) => {
+          onToggleReaction?.(message.id, emoji);
+        }}
       />
 
-      <Composer onSend={sendMessage} />
+      <Composer
+        key={composerContext
+          ? `${composerContext.mode}:${composerContext.message.id}`
+          : 'message'}
+        onSend={submitComposer}
+        context={composerContext}
+        onCancelContext={() => setComposerContext(null)}
+      />
     </section>
   );
 }

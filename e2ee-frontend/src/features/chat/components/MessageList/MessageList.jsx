@@ -14,6 +14,10 @@ export default function MessageList({
   hasOlderMessages = false,
   historyLoading = false,
   onLoadOlderMessages,
+  onReplyMessage,
+  onEditMessage,
+  onDeleteMessage,
+  onToggleReaction,
 }) {
   const listRef = useRef(null);
   const scrollMetricsRef = useRef(null);
@@ -65,14 +69,22 @@ export default function MessageList({
             {group.messages.map((message) => (
               <MessageCard
                 key={message.id}
+                message={message}
                 text={message.text || message.content}
                 time={message.time}
                 isMine={message.from === username || message.isMine}
+                currentUsername={username}
                 status={message.status}
                 edited={message.edited}
                 deleted={message.deleted}
+                replyTo={message.replyTo}
+                reactions={message.reactions}
                 highlightQuery={highlightQuery}
                 onRetry={() => onRetryMessage?.(message.id)}
+                onReply={onReplyMessage}
+                onEdit={onEditMessage}
+                onDelete={onDeleteMessage}
+                onToggleReaction={onToggleReaction}
               />
             ))}
           </div>
