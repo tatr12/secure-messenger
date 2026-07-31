@@ -73,7 +73,7 @@ test('chat preview identifies outgoing and failed messages truthfully', () => {
   );
 });
 
-test('server unread metadata overrides the loaded history window', () => {
+test('provided unread metadata overrides the loaded history window', () => {
   const [summary] = buildChatSummaries(
     ['bob'],
     [{ id: 1, from: 'bob', to: 'alice', status: 'delivered' }],
@@ -82,6 +82,22 @@ test('server unread metadata overrides the loaded history window', () => {
   );
 
   assert.equal(summary.unreadCount, 12);
+});
+
+test('deleted messages are not shown as unread activity', () => {
+  const [summary] = buildChatSummaries(
+    ['bob'],
+    [{
+      id: 1,
+      from: 'bob',
+      to: 'alice',
+      status: 'delivered',
+      deleted: true,
+    }],
+    'alice',
+  );
+
+  assert.equal(summary.unreadCount, 0);
 });
 
 test('pinned chats sort first and filters keep archive separate', () => {

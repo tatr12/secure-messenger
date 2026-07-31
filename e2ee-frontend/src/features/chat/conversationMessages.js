@@ -67,7 +67,11 @@ export function buildChatSummaries(
 
     summary.lastMessage = message;
     summary.lastMessageIndex = index;
-    if (message.from === partner && message.status !== 'read') {
+    if (
+      message.from === partner &&
+      message.status !== 'read' &&
+      !message.deleted
+    ) {
       summary.unreadCount += 1;
     }
     summaries.set(partner, summary);

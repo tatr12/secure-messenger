@@ -269,6 +269,61 @@ export function materializeMessageEvents(events, currentUsername) {
   });
 }
 
+export function buildUnreadMessageCounts(messages, currentUsername) {
+  const counts = {};
+
+  for (const message of messages) {
+    if (
+      message.to !== currentUsername ||
+      message.from === currentUsername ||
+      message.status === 'read' ||
+      message.deleted
+    ) continue;
+
+    counts[message.from] = (counts[message.from] ?? 0) + 1;
+  }
+
+  return counts;
+}
+
+export function hasLoadedAllUnreadEventRows(
+  encryptedRows,
+  currentUsername,
+  serverUnreadCounts = {},
+) {
+  const loadedCounts = {};
+
+  for (const row of encryptedRows) {
+    if (
+      row.to !== currentUsername ||
+      row.from === currentUsername ||
+      row.status === 'read'
+    ) continue;
+
+    loadedCounts[row.from] = (loadedCounts[row.from] ?? 0) + 1;
+  }
+
+  return Object.entries(serverUnreadCounts).every(
+    ([sender, count]) => (loadedCounts[sender] ?? 0) >= Number(count),
+  );
+}
+
+export function sortMessageEventsByServerOrder(events) {
+  return events
+    .map((event, index) => ({ event, index }))
+    .sort((first, second) => {
+      const firstId = first.event.serverId;
+      const secondId = second.event.serverId;
+      const firstPersisted = Number.isInteger(firstId);
+      const secondPersisted = Number.isInteger(secondId);
+
+      if (firstPersisted && secondPersisted) return firstId - secondId;
+      if (firstPersisted !== secondPersisted) return firstPersisted ? -1 : 1;
+      return first.index - second.index;
+    })
+    .map(({ event }) => event);
+}
+
 export function getMessageEventNotification(event) {
   if (event.kind === 'edit') return 'Сообщение изменено';
   if (event.kind === 'delete') return 'Сообщение удалено';

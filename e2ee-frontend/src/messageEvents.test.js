@@ -2,13 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  buildUnreadMessageCounts,
   createDeleteEnvelope,
   createEditEnvelope,
   createMessageEnvelope,
   createReactionEnvelope,
+  hasLoadedAllUnreadEventRows,
   materializeMessageEvents,
   parseMessageEvent,
   serializeMessageEnvelope,
+  sortMessageEventsByServerOrder,
 } from './features/chat/messageEvents.js';
 
 function transport(overrides = {}) {
@@ -143,4 +146,80 @@ test('reply preview resolves after older target events are loaded', () => {
 
   assert.equal(unresolved.replyTo.available, false);
   assert.equal(resolved.replyTo.text, 'Оригинал');
+});
+
+test('unread counts include messages but not encrypted service events', () => {
+  const base = parse(
+    createMessageEnvelope({ eventId: 'message-1', text: 'Текст' }),
+    { from: 'bob', to: 'alice', status: 'delivered' },
+  );
+  const edit = parse(
+    createEditEnvelope({
+      eventId: 'edit-1',
+      targetId: 'message-1',
+      text: 'Новый текст',
+    }),
+    { serverId: 2, clientId: 'edit-1', from: 'bob', to: 'alice' },
+  );
+  const reaction = parse(
+    createReactionEnvelope({
+      eventId: 'reaction-1',
+      targetId: 'message-1',
+      emoji: '👍',
+      operation: 'add',
+    }),
+    { serverId: 3, clientId: 'reaction-1', from: 'alice', to: 'bob' },
+  );
+
+  const messages = materializeMessageEvents([base, edit, reaction], 'alice');
+
+  assert.deepEqual(buildUnreadMessageCounts(messages, 'alice'), { bob: 1 });
+});
+
+test('deleted messages do not remain unread', () => {
+  const base = parse(
+    createMessageEnvelope({ eventId: 'message-1', text: 'Текст' }),
+    { from: 'bob', to: 'alice', status: 'delivered' },
+  );
+  const deletion = parse(
+    createDeleteEnvelope({ eventId: 'delete-1', targetId: 'message-1' }),
+    { serverId: 2, clientId: 'delete-1', from: 'bob', to: 'alice' },
+  );
+
+  const messages = materializeMessageEvents([base, deletion], 'alice');
+
+  assert.deepEqual(buildUnreadMessageCounts(messages, 'alice'), {});
+});
+
+test('loaded encrypted rows are compared with opaque server unread totals', () => {
+  const rows = [
+    { from: 'bob', to: 'alice', status: 'delivered' },
+    { from: 'bob', to: 'alice', status: 'sent' },
+    { from: 'carol', to: 'alice', status: 'read' },
+    { from: 'alice', to: 'bob', status: 'sent' },
+  ];
+
+  assert.equal(
+    hasLoadedAllUnreadEventRows(rows, 'alice', { bob: 2 }),
+    true,
+  );
+  assert.equal(
+    hasLoadedAllUnreadEventRows(rows, 'alice', { bob: 3 }),
+    false,
+  );
+});
+
+test('sparse unread events stay in server order when older history loads', () => {
+  const events = [
+    { eventId: 'older-1', serverId: 1 },
+    { eventId: 'older-11', serverId: 11 },
+    { eventId: 'unread-10', serverId: 10 },
+    { eventId: 'latest-51', serverId: 51 },
+    { eventId: 'optimistic', serverId: null },
+  ];
+
+  assert.deepEqual(
+    sortMessageEventsByServerOrder(events).map((event) => event.eventId),
+    ['older-1', 'unread-10', 'older-11', 'latest-51', 'optimistic'],
+  );
 });

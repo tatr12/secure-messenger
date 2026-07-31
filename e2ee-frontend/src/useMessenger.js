@@ -25,20 +25,39 @@ import { buildWebSocketProtocols, buildWebSocketUrl } from './websocketUrl';
 import { formatMessageTime } from './features/chat/messageDates';
 import { advanceMessageStatus } from './features/chat/messageStatus';
 import {
+  buildUnreadMessageCounts,
   createDeleteEnvelope,
   createEditEnvelope,
   createMessageEnvelope,
   createReactionEnvelope,
   getMessageEventNotification,
+  hasLoadedAllUnreadEventRows,
   materializeMessageEvents,
   parseMessageEvent,
   serializeMessageEnvelope,
+  sortMessageEventsByServerOrder,
 } from './features/chat/messageEvents';
+import { createMessageEventQueue } from './features/chat/messageEventQueue';
 
 // Укажи путь к звуковому файлу (из папки public или внешний URL)
 const NOTIFICATION_SOUND_URL = '/audio_2026-06-13_23-53-24.mp3';
 const DEFAULT_BIO = 'В сети СМЕРТЬ В НИЩЕТЕ';
 const HISTORY_PAGE_SIZE = 50;
+const UNREAD_HISTORY_PAGE_SIZE = 100;
+
+function mergeEncryptedHistoryRows(...collections) {
+  const rowsById = new Map();
+
+  for (const rows of collections) {
+    for (const row of rows) {
+      rowsById.set(row.id, row);
+    }
+  }
+
+  return Array.from(rowsById.values()).sort(
+    (first, second) => first.id - second.id,
+  );
+}
 
 export function useMessenger() {
   const [isRegMode, setIsRegMode] = useState(false);
@@ -76,6 +95,7 @@ export function useMessenger() {
   const deliveryReceiptQueueRef = useRef(new Map());
   const receivedMessageIdsRef = useRef(new Set());
   const messageEventsRef = useRef([]);
+  const messageEventQueueRef = useRef(null);
   const historyBeforeIdRef = useRef(null);
   const historyLoadingRef = useRef(false);
   const myKeysRef = useRef({ publicKey: null, privateKey: null });
@@ -89,6 +109,9 @@ export function useMessenger() {
 
   if (sessionLifecycleRef.current === null) {
     sessionLifecycleRef.current = createSessionLifecycle();
+  }
+  if (messageEventQueueRef.current === null) {
+    messageEventQueueRef.current = createMessageEventQueue();
   }
 
   // Реф для аудио, чтобы не создавать экземпляр при каждом рендере
@@ -109,11 +132,16 @@ export function useMessenger() {
 
   const commitMessageEvents = (events, currentUsername = username) => {
     messageEventsRef.current = events;
-    setAllMessages(materializeMessageEvents(events, currentUsername));
+    const messages = materializeMessageEvents(events, currentUsername);
+    setAllMessages(messages);
+    return messages;
   };
 
   const updateMessageEvents = (updater, currentUsername = username) => {
-    commitMessageEvents(updater(messageEventsRef.current), currentUsername);
+    return commitMessageEvents(
+      updater(messageEventsRef.current),
+      currentUsername,
+    );
   };
 
   const closeCurrentWebSocket = (reason) => {
@@ -136,6 +164,7 @@ export function useMessenger() {
     deliveryReceiptQueueRef.current.clear();
     receivedMessageIdsRef.current.clear();
     messageEventsRef.current = [];
+    messageEventQueueRef.current.reset();
     historyBeforeIdRef.current = null;
     historyLoadingRef.current = false;
     chatPreferencesRef.current = {};
@@ -244,6 +273,7 @@ export function useMessenger() {
       deliveryReceiptQueue.clear();
       receivedMessageIds.clear();
       messageEventsRef.current = [];
+      messageEventQueueRef.current.reset();
       myKeysRef.current = { publicKey: null, privateKey: null };
       sessionTokenRef.current = null;
       sessionRefreshPromiseRef.current = null;
@@ -645,9 +675,14 @@ export function useMessenger() {
     flushDeliveryReceipts(wsRef.current);
   }
 
-  async function requestHistoryPage(accessToken, beforeId = null) {
-    const query = new URLSearchParams({ limit: String(HISTORY_PAGE_SIZE) });
+  async function requestHistoryPage(
+    accessToken,
+    beforeId = null,
+    { unreadOnly = false, limit = HISTORY_PAGE_SIZE } = {},
+  ) {
+    const query = new URLSearchParams({ limit: String(limit) });
     if (beforeId) query.set('before_id', String(beforeId));
+    if (unreadOnly) query.set('unread_only', 'true');
 
     const response = await fetch(`/history/page?${query}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -655,6 +690,28 @@ export function useMessenger() {
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return response.json();
+  }
+
+  async function requestUnreadHistoryRows(accessToken, sessionGeneration) {
+    const rows = [];
+    const seenCursors = new Set();
+    let beforeId = null;
+
+    do {
+      const page = await requestHistoryPage(accessToken, beforeId, {
+        unreadOnly: true,
+        limit: UNREAD_HISTORY_PAGE_SIZE,
+      });
+      if (!sessionLifecycleRef.current.isActive(sessionGeneration)) return [];
+
+      rows.push(...(page.messages ?? []));
+      const nextBeforeId = page.next_before_id ?? null;
+      if (!nextBeforeId || seenCursors.has(nextBeforeId)) break;
+      seenCursors.add(nextBeforeId);
+      beforeId = nextBeforeId;
+    } while (beforeId);
+
+    return rows;
   }
 
   async function cachePartnerNames(partners, sessionGeneration) {
@@ -772,8 +829,25 @@ export function useMessenger() {
         ...preferencePartners,
       ]));
       await cachePartnerNames(partners, sessionGeneration);
+
+      let encryptedRows = page.messages ?? [];
+      if (!hasLoadedAllUnreadEventRows(
+        encryptedRows,
+        currentUsername,
+        page.unread_counts,
+      )) {
+        const unreadRows = await requestUnreadHistoryRows(
+          accessToken,
+          sessionGeneration,
+        );
+        encryptedRows = mergeEncryptedHistoryRows(
+          encryptedRows,
+          unreadRows,
+        );
+      }
+
       const decryptedEvents = await decryptHistoryEvents(
-        page.messages ?? [],
+        encryptedRows,
         myPrivateKey,
         currentUsername,
         sessionGeneration,
@@ -783,13 +857,18 @@ export function useMessenger() {
 
       historyBeforeIdRef.current = page.next_before_id ?? null;
       setHasOlderMessages(Boolean(page.next_before_id));
-      setUnreadCounts(page.unread_counts ?? {});
       const indexedPreferences = indexChatPreferences(preferenceList);
       chatPreferencesRef.current = indexedPreferences;
       setChatPreferences(indexedPreferences);
       setHistoryPartners(historyPartnerList);
       setChatPartners(partners);
-      commitMessageEvents(decryptedEvents, currentUsername);
+      const messages = commitMessageEvents(
+        decryptedEvents,
+        currentUsername,
+      );
+      setUnreadCounts(
+        buildUnreadMessageCounts(messages, currentUsername),
+      );
 
       console.log('[History] Последняя страница восстановлена', {
         messages: materializeMessageEvents(
@@ -841,7 +920,6 @@ export function useMessenger() {
 
       historyBeforeIdRef.current = page.next_before_id ?? null;
       setHasOlderMessages(Boolean(page.next_before_id));
-      setUnreadCounts(page.unread_counts ?? {});
       const knownServerIds = new Set(
         messageEventsRef.current.map((item) => item.serverId),
       );
@@ -854,10 +932,14 @@ export function useMessenger() {
           !knownEventIds.has(item.eventId)
         ),
       );
-      commitMessageEvents(
-        [...olderEvents, ...messageEventsRef.current],
+      const messages = commitMessageEvents(
+        sortMessageEventsByServerOrder([
+          ...olderEvents,
+          ...messageEventsRef.current,
+        ]),
         username,
       );
+      setUnreadCounts(buildUnreadMessageCounts(messages, username));
     } catch (error) {
       if (lifecycle.isActive(sessionGeneration)) {
         console.error('[History] Ошибка загрузки старых сообщений:', error);
@@ -1328,16 +1410,13 @@ export function useMessenger() {
           current.includes(data.from) ? current : [...current, data.from]
         ));
         const isActiveConversation = activeChatUserRef.current === data.from;
-        setUnreadCounts((current) => ({
-          ...current,
-          [data.from]: isActiveConversation
-            ? 0
-            : (current[data.from] ?? 0) + 1,
-        }));
-        updateMessageEvents(
+        const messages = updateMessageEvents(
           (events) => [...events, incomingEvent],
           user,
         );
+        if (!isActiveConversation) {
+          setUnreadCounts(buildUnreadMessageCounts(messages, user));
+        }
 
         queueDeliveryReceipt(data.id, data.client_id);
 
@@ -1376,9 +1455,9 @@ export function useMessenger() {
     currentTarget,
     envelope,
     timeString,
+    sessionGeneration,
   ) {
     const lifecycle = sessionLifecycleRef.current;
-    const sessionGeneration = lifecycle.currentGeneration();
     const privateKey = myKeysRef.current.privateKey;
 
     if (!lifecycle.isActive(sessionGeneration) || !privateKey) return false;
@@ -1464,6 +1543,22 @@ export function useMessenger() {
     }
   }
 
+  function queueMessageEventTransmission(
+    clientId,
+    currentTarget,
+    envelope,
+    timeString,
+  ) {
+    const sessionGeneration = sessionLifecycleRef.current.currentGeneration();
+    return messageEventQueueRef.current.enqueue(() => transmitMessageEvent(
+      clientId,
+      currentTarget,
+      envelope,
+      timeString,
+      sessionGeneration,
+    ));
+  }
+
   function enqueueMessageEvent(currentTarget, envelope) {
     const createdAt = new Date().toISOString();
     const timeString = formatMessageTime(createdAt);
@@ -1483,7 +1578,7 @@ export function useMessenger() {
       },
     );
     updateMessageEvents((events) => [...events, optimisticEvent]);
-    void transmitMessageEvent(
+    void queueMessageEventTransmission(
       envelope.event_id,
       currentTarget,
       envelope,
@@ -1530,7 +1625,7 @@ export function useMessenger() {
         ? { ...item, status: 'sending' }
         : item
     )));
-    void transmitMessageEvent(
+    void queueMessageEventTransmission(
       failedEvent.clientId,
       failedEvent.to,
       createMessageEnvelope({
@@ -1614,6 +1709,7 @@ export function useMessenger() {
     deliveryReceiptQueueRef.current.clear();
     receivedMessageIdsRef.current.clear();
     messageEventsRef.current = [];
+    messageEventQueueRef.current.reset();
     historyBeforeIdRef.current = null;
     historyLoadingRef.current = false;
     chatPreferencesRef.current = {};
