@@ -1,3 +1,5 @@
+/* eslint-env node */
+
 import { createKeyEnvelopeV2 } from '../src/crypto.js';
 
 const API_URL = process.env.VOIDEN_API_URL || 'http://127.0.0.1:8000';

@@ -4,6 +4,24 @@ import LoginPage from './pages/Login/LoginPage';
 import ChatPage from './pages/Chat/ChatPage';
 import ToastViewport from './ui/ToastViewport/ToastViewport';
 
+const verificationRequests = new Map();
+
+async function verifyEmailToken(token) {
+  if (!verificationRequests.has(token)) {
+    verificationRequests.set(
+      token,
+      fetch(`/api/verify?token=${encodeURIComponent(token)}`).then(
+        async (response) => ({
+          ok: response.ok,
+          data: await response.json(),
+        })
+      )
+    );
+  }
+
+  return verificationRequests.get(token);
+}
+
 export default function App() {
   const m = useMessenger();
   const [verificationStatus, setVerificationStatus] = useState(null);
@@ -24,19 +42,27 @@ export default function App() {
 
     const verifyEmail = async () => {
       setVerificationLoading(true);
+      setVerificationError(null);
+
       try {
-        const res = await fetch(
-          `/api/verify?token=${encodeURIComponent(verificationToken)}`
-        );
-        const data = await res.json();
-        if (!res.ok) {
-          setVerificationError(data.error || 'Ошибка при подтверждении email.');
+        const { ok, data } = await verifyEmailToken(verificationToken);
+
+        if (!ok) {
+          setVerificationStatus(null);
+          setVerificationError(
+            data.error || data.detail || 'Ошибка при подтверждении email.'
+          );
           return;
         }
+
+        setVerificationError(null);
         setVerificationStatus(data.message || 'Email успешно подтвержден.');
         window.history.replaceState(null, '', '/');
       } catch {
-        setVerificationError('Не удалось связаться с сервером при подтверждении.');
+        setVerificationStatus(null);
+        setVerificationError(
+          'Не удалось связаться с сервером при подтверждении.'
+        );
       } finally {
         setVerificationLoading(false);
       }
