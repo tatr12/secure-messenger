@@ -1,8 +1,6 @@
-/* eslint-env node */
-
 import { createKeyEnvelopeV2 } from '../src/crypto.js';
 
-const API_URL = process.env.VOIDEN_API_URL || 'http://127.0.0.1:8000';
+const API_URL = globalThis.process?.env?.VOIDEN_API_URL || 'http://127.0.0.1:8000';
 
 const USERS = [
   ['voiden_alice', 'Alice123456!'],
@@ -101,5 +99,5 @@ console.log('');
 console.log('Mailpit: http://127.0.0.1:8026');
 
 if (results.failed > 0) {
-  process.exitCode = 1;
+  globalThis.process.exitCode = 1;
 }
